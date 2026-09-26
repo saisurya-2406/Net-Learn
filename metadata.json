@@ -1,0 +1,6 @@
+{
+  "name": "NetLearn - Interactive Computer Networks Platform",
+  "description": "Comprehensive interactive Computer Networks platform featuring Packet-Tracer-like network simulation, protocol visualizers, subnetting calculators, guided labs, troubleshooting challenges, exams, and AI tutoring.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
