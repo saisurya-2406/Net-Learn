@@ -1,20 +1,23 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# NetLearn
 
-# Run and deploy your AI Studio app
+Interactive computer networks learning platform with packet simulation, routing visualizers, labs, syllabus content, and practice tools.
 
-This contains everything you need to run your app locally.
+## Run locally
 
-View your app in AI Studio: https://ai.studio/apps/d53aeaff-46ae-4449-b933-a564fd7f1595
-
-## Run Locally
-
-**Prerequisites:**  Node.js
-
+**Prerequisites:** Node.js
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+2. Start the development server:
    `npm run dev`
+3. Open the app in the browser at the local Vite URL.
+
+## Features
+
+- 5-unit networking syllabus
+- 15 lab experiments
+- Packet Tracer style simulator workspace
+- Routing algorithm visualizers
+- Subnetting and networking calculators
+- Practice and viva questions
+- AI tutor support with optional local fallback logic

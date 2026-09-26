@@ -14,7 +14,7 @@ const PORT = 3000;
 
 app.use(express.json());
 
-// Initialize GoogleGenAI if key is provided
+// Initialize AI client if a key is provided
 let aiClient: GoogleGenAI | null = null;
 if (process.env.GEMINI_API_KEY) {
   try {
@@ -22,12 +22,12 @@ if (process.env.GEMINI_API_KEY) {
       apiKey: process.env.GEMINI_API_KEY,
       httpOptions: {
         headers: {
-          'User-Agent': 'aistudio-build',
+          'User-Agent': 'netlearn-app',
         },
       },
     });
   } catch (err) {
-    console.error('Failed to initialize GoogleGenAI client:', err);
+    console.error('Failed to initialize AI client:', err);
   }
 }
 

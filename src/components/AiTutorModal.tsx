@@ -88,7 +88,6 @@ export const AiTutorModal: React.FC<AiTutorModalProps> = ({
             <div>
               <h2 className="text-base font-semibold text-white flex items-center gap-2">
                 <span>NetLearn AI Networking Tutor</span>
-                <span className="text-xs text-sky-400 font-mono">Gemini 3.8 Flash</span>
               </h2>
               <p className="text-xs text-slate-400">
                 Interactive explanations, packet debugging, and numerical solving
