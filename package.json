@@ -8,6 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "NODE_ENV=production tsx server.ts",
+    "test": "node --import tsx --test",
+    "check:resource-links": "node --import tsx scripts/check-resource-links.mjs",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
   },

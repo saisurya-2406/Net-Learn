@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { 
   Monitor, Laptop, Shuffle, Compass, Server, Radio, Shield, Box,
   Trash2, Settings, Terminal, Cable, ZoomIn, ZoomOut, RotateCcw, Copy,
-  FileText, MousePointer, X, Check, MapPin, Building, Server as ServerIcon,
+  FileText, MousePointer, X, Check, MapPin, Building, Server as ServerIcon, Mail,
   Printer, Phone
 } from 'lucide-react';
 import { NetworkDevice, NetworkLink, SimulationStep, DeviceType, CableType } from '../../types/network';
@@ -169,14 +169,16 @@ export const NetworkCanvas: React.FC<NetworkCanvasProps> = ({
   const selectedDev = devices.find((d) => d.id === selectedDeviceId);
 
   // Active packet coordinate calculation
-  let packetAnimCoords: { x: number; y: number } | null = null;
+  let packetAnimCoords: { x: number; y: number; dx: number; dy: number } | null = null;
   if (activeSimulationStep && activeSimulationStep.fromDeviceId && activeSimulationStep.toDeviceId) {
     const fromDev = devices.find((d) => d.id === activeSimulationStep.fromDeviceId);
     const toDev = devices.find((d) => d.id === activeSimulationStep.toDeviceId);
     if (fromDev && toDev) {
       packetAnimCoords = {
-        x: (fromDev.x + toDev.x) / 2 + 28,
-        y: (fromDev.y + toDev.y) / 2 + 28,
+        x: fromDev.x + 28,
+        y: fromDev.y + 28,
+        dx: toDev.x - fromDev.x,
+        dy: toDev.y - fromDev.y,
       };
     }
   }
@@ -361,6 +363,25 @@ export const NetworkCanvas: React.FC<NetworkCanvasProps> = ({
           }`}
           style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'top left' }}
         >
+          {devices.length === 0 && (
+            <div className="absolute inset-0 z-[1] flex items-center justify-center p-6 pointer-events-none">
+              <div className="max-w-md rounded-2xl border border-sky-500/30 bg-slate-950/90 p-6 text-center shadow-2xl">
+                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl border border-cyan-400/30 bg-cyan-400/10 text-cyan-300">
+                  <Cable className="h-6 w-6" />
+                </div>
+                <h2 className="text-lg font-bold text-white">Your blank network lab</h2>
+                <p className="mt-2 text-sm text-slate-300">
+                  Add devices from the palette below. Choose a cable, select a port on each device, then send a message to inspect its simulated path.
+                </p>
+                <div className="mt-4 grid grid-cols-3 gap-2 text-[11px] font-semibold text-slate-400">
+                  <span className="rounded-lg bg-slate-900 p-2">1. Add nodes</span>
+                  <span className="rounded-lg bg-slate-900 p-2">2. Connect ports</span>
+                  <span className="rounded-lg bg-slate-900 p-2">3. Send packet</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* SVG Links Layer */}
           <svg className="absolute inset-0 w-full h-full pointer-events-none">
             {links.map((link) => {
@@ -564,17 +585,27 @@ export const NetworkCanvas: React.FC<NetworkCanvasProps> = ({
           {/* Animated Moving Packet Envelope */}
           {packetAnimCoords && (
             <div
+              key={`${activeSimulationStep?.stepIndex}-${activeSimulationStep?.fromDeviceId}-${activeSimulationStep?.toDeviceId}`}
               onClick={(e) => {
                 e.stopPropagation();
                 onInspectPacket();
               }}
-              className="absolute z-30 -translate-x-1/2 -translate-y-1/2 cursor-pointer transition-all duration-300 animate-bounce"
-              style={{ left: packetAnimCoords.x, top: packetAnimCoords.y }}
+              className="absolute z-30 cursor-pointer"
+              style={{
+                left: packetAnimCoords.x,
+                top: packetAnimCoords.y,
+                transform: 'translate(-50%, -50%)',
+                animation: packetAnimCoords.dx === 0 && packetAnimCoords.dy === 0
+                  ? undefined
+                  : 'packet-travel 1.1s ease-in-out forwards',
+                '--packet-dx': `${packetAnimCoords.dx}px`,
+                '--packet-dy': `${packetAnimCoords.dy}px`,
+              } as React.CSSProperties}
               title="Click to Inspect Packet Layers"
             >
-              <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-sky-500 text-white font-mono text-[10px] font-bold shadow-lg shadow-sky-500/50 border border-white/60">
-                <span className="w-2 h-2 rounded-full bg-white animate-ping" />
-                <span>{activeSimulationStep?.protocol} PACKET</span>
+              <div className="flex items-center gap-1.5 rounded-full border border-white/60 bg-sky-500 px-2.5 py-1 text-[10px] font-bold text-white shadow-lg shadow-sky-500/50">
+                <Mail className="h-3.5 w-3.5" />
+                <span>{activeSimulationStep?.protocol} {activeSimulationStep?.isReturnTrip ? 'REPLY' : 'MESSAGE'}</span>
               </div>
             </div>
           )}

@@ -10,43 +10,18 @@ import { SyllabusTopic, UnitSection } from '../../types/syllabus';
 import { ACADEMIC_EXPERIMENTS, AcademicExperiment } from '../../data/labData';
 import { NetworkDevice, NetworkLink } from '../../types/network';
 import { ActiveTab } from '../Navbar';
-
-// Mapping of Units to their corresponding official syllabus lab numbers
-const UNIT_LAB_MAPPINGS: Record<number, number[]> = {
-  1: [1, 2, 3],
-  2: [4, 5, 6],
-  3: [7, 8, 9],
-  4: [10, 11, 12],
-  5: [13, 14, 15]
-};
-
-// Mapping of topic IDs to their relevant lab number for quick in-context actions
-const TOPIC_LAB_MAPPINGS: Record<string, { labNumber: number; title: string }> = {
-  'u1-t1': { labNumber: 1, title: 'Lab 1: Packet Tracer, Peer-to-Peer & Cable Color Codes' },
-  'u1-t2': { labNumber: 2, title: 'Lab 2: Implementation of Network Topologies' },
-  'u1-t6': { labNumber: 1, title: 'Lab 1: Cable Standards & Delay Metrics' },
-  'u1-t7': { labNumber: 1, title: 'Lab 1: Study of Guided Media & T568A/B Pinouts' },
-  'u2-t2': { labNumber: 4, title: 'Lab 4: IP Addressing & Subnetting (FLSM / VLSM)' },
-  'u2-t3': { labNumber: 4, title: 'Lab 4: Variable Length Subnet Masking (VLSM)' },
-  'u2-t4': { labNumber: 6, title: 'Lab 6: NAT & PAT Configuration on Cisco Routers' },
-  'u2-t5': { labNumber: 3, title: 'Lab 3: Router Configuration & Switch Interconnections' },
-  'u3-t1': { labNumber: 5, title: 'Lab 5: Static and Default Routing Implementation' },
-  'u3-t2': { labNumber: 7, title: 'Lab 7: RIP Distance Vector Routing Simulation' },
-  'u3-t3': { labNumber: 9, title: 'Lab 9: Single Area OSPF Link State Routing' },
-  'u4-t1': { labNumber: 2, title: 'Lab 2: Ethernet & Shared Access Topologies' },
-  'u4-t6': { labNumber: 11, title: 'Lab 11: PPP & CHAP Serial Encapsulation' },
-  'u5-t1': { labNumber: 15, title: 'Lab 15: Telnet TCP Port 23 Remote Configuration' },
-  'u5-t4': { labNumber: 15, title: 'Lab 15: Telnet VTY Line Access & Security' }
-};
+import { TOPIC_LAB_MAPPINGS, UNIT_LAB_MAPPINGS } from '../../data/syllabusLabMappings';
 
 interface SyllabusExamGuideViewProps {
   onNavigateToTab?: (tab: ActiveTab) => void;
   onLoadTopology?: (devices: NetworkDevice[], links: NetworkLink[]) => void;
+  onOpenLab?: (experimentId: string) => void;
 }
 
 export const SyllabusExamGuideView: React.FC<SyllabusExamGuideViewProps> = ({
   onNavigateToTab,
-  onLoadTopology
+  onLoadTopology,
+  onOpenLab
 }) => {
   const [selectedUnitId, setSelectedUnitId] = useState<string>('unit-1');
   const [selectedTopicId, setSelectedTopicId] = useState<string>('u1-t1');
@@ -61,6 +36,7 @@ export const SyllabusExamGuideView: React.FC<SyllabusExamGuideViewProps> = ({
       case 'Compass': return Compass;
       case 'Zap': return Zap;
       case 'Shield': return Shield;
+      case 'Globe': return Globe;
       default: return BookOpen;
     }
   };
@@ -88,6 +64,10 @@ export const SyllabusExamGuideView: React.FC<SyllabusExamGuideViewProps> = ({
   };
 
   const handleOpenLabManual = () => {
+    if (relevantLabExp && onOpenLab) {
+      onOpenLab(relevantLabExp.id);
+      return;
+    }
     if (onNavigateToTab) {
       onNavigateToTab('labs');
     }
@@ -119,14 +99,14 @@ export const SyllabusExamGuideView: React.FC<SyllabusExamGuideViewProps> = ({
               Official 5-Unit Curriculum
             </span>
             <span className="text-slate-500 text-xs">•</span>
-            <span className="text-slate-400 text-xs font-mono">15 Labs Mapped Directly to Theory</span>
+            <span className="text-slate-400 text-xs font-mono">Guided theory and practical links</span>
           </div>
           <h2 className="text-xl font-bold text-white tracking-tight mt-1 flex items-center gap-2">
             <BookOpen className="w-5 h-5 text-sky-400" />
             <span>Computer Networks Master Syllabus & Lab Experiments</span>
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Complete syllabus notes, ASCII protocol diagrams, exam writing strategies, viva questions, and corresponding Cisco Packet Tracer laboratory experiments (Labs 1 to 15).
+            Complete syllabus notes, protocol diagrams, exam writing strategies, and corresponding network laboratory experiments (Labs 1 to 15).
           </p>
         </div>
 
@@ -344,7 +324,7 @@ export const SyllabusExamGuideView: React.FC<SyllabusExamGuideViewProps> = ({
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-xs shadow-sm transition-all"
                     >
                       <Play className="w-3.5 h-3.5" />
-                      <span>Load in Packet Tracer</span>
+                      <span>Load in Simulator</span>
                     </button>
                   )}
                   <button
@@ -442,29 +422,6 @@ export const SyllabusExamGuideView: React.FC<SyllabusExamGuideViewProps> = ({
               </p>
             </div>
 
-            {/* Frequently Asked Viva / Oral Exam Questions */}
-            <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-3 text-xs">
-              <h4 className="font-bold text-white text-[11px] uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                <HelpCircle className="w-3.5 h-3.5 text-sky-400" />
-                <span>Examiner Viva-Voce Questions & Expected One-Sentence Answers</span>
-              </h4>
-
-              <div className="space-y-2.5">
-                {activeTopic.vivaQuestions.map((vq, i) => (
-                  <div key={i} className="p-3 rounded-lg bg-slate-900 border border-slate-800 space-y-1">
-                    <div className="font-bold text-sky-400 flex items-start gap-1.5">
-                      <span className="font-mono text-slate-500">Q{i + 1}:</span>
-                      <span>{vq.q}</span>
-                    </div>
-                    <div className="pl-5 text-slate-300 leading-relaxed font-sans">
-                      <strong className="text-slate-400">Ans: </strong>
-                      {vq.a}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
           </div>
 
         </div>
@@ -476,7 +433,7 @@ export const SyllabusExamGuideView: React.FC<SyllabusExamGuideViewProps> = ({
           <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
             <div>
               <h3 className="font-bold text-white text-sm">
-                Unit {activeUnit.unitNumber} Hands-On Cisco Packet Tracer Labs
+                Unit {activeUnit.unitNumber} Hands-On Network Labs
               </h3>
               <p className="text-slate-400 text-xs mt-0.5">
                 These {activeUnitLabs.length} experiments are prescribed for Unit {activeUnit.unitNumber}. You can test the CLI commands below or load the topology directly into the interactive simulator.
@@ -487,7 +444,7 @@ export const SyllabusExamGuideView: React.FC<SyllabusExamGuideViewProps> = ({
               onClick={handleOpenLabManual}
               className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-sky-400 font-bold rounded-lg border border-slate-700 transition-colors shrink-0"
             >
-              <span>View All 15 Labs Index</span>
+              <span>Open Complete Lab Index</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -555,7 +512,7 @@ export const SyllabusExamGuideView: React.FC<SyllabusExamGuideViewProps> = ({
                     className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-bold shadow-md shadow-sky-600/30 transition-all"
                   >
                     <Play className="w-3.5 h-3.5" />
-                    <span>Launch in Packet Tracer</span>
+                    <span>Launch in Simulator</span>
                   </button>
                 </div>
               </div>

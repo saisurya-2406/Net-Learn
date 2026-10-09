@@ -116,10 +116,11 @@ export function calculateIpv4Subnet(ipStr: string, prefix: number): SubnetResult
   const parts = ipStr.trim().split('.');
   if (parts.length !== 4) return null;
   for (const part of parts) {
-    const val = parseInt(part, 10);
-    if (isNaN(val) || val < 0 || val > 255) return null;
+    if (!/^\d{1,3}$/.test(part)) return null;
+    const val = Number(part);
+    if (val < 0 || val > 255) return null;
   }
-  if (prefix < 0 || prefix > 32) return null;
+  if (!Number.isInteger(prefix) || prefix < 0 || prefix > 32) return null;
 
   const ipNum = ipToNumber(ipStr);
   const maskNum = prefixToNumber(prefix);
@@ -176,6 +177,7 @@ export function calculateIpv4Subnet(ipStr: string, prefix: number): SubnetResult
 
 // Calculate FLSM (Fixed Length Subnet Masking)
 export function calculateFlsm(baseIp: string, basePrefix: number, subnetCount: number): FlsmSubnet[] {
+  if (!calculateIpv4Subnet(baseIp, basePrefix) || !Number.isInteger(subnetCount) || subnetCount < 1) return [];
   const borrowedBits = Math.ceil(Math.log2(subnetCount));
   const newPrefix = basePrefix + borrowedBits;
   if (newPrefix > 30) return [];

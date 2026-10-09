@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Play, Pause, StepForward, RotateCcw, HelpCircle, FileText, 
   Download, Upload, Sparkles, Send, ShieldAlert, Check, FastForward,
-  FolderOpen, Save, RefreshCw, Layers, ChevronDown, BookOpen, Monitor,
+  FolderOpen, Save, RefreshCw, Layers, ChevronDown, BookOpen, Monitor, Activity,
   Compass, Shuffle, Terminal, Info, X, Cable
 } from 'lucide-react';
 import { NetworkDevice, NetworkLink, SimulationStep, DeviceType, CableType } from '../../types/network';
@@ -12,6 +12,13 @@ import { PacketTracerBottomBar } from './PacketTracerBottomBar';
 import { CiscoDeviceModal } from './CiscoDeviceModal';
 import { PacketInspector } from './PacketInspector';
 import { generateSimulationTrace } from '../../utils/simulationEngine';
+import {
+  createTopologyFile,
+  parseTopologyFile,
+  readSavedTopologies,
+  SavedTopology,
+  writeSavedTopologies,
+} from '../../utils/topologyFiles';
 
 // Default standard topology: PC0 -> Switch0 -> Router0 -> Server0
 const DEFAULT_DEVICES: NetworkDevice[] = [
@@ -98,7 +105,7 @@ const DEFAULT_DEVICES: NetworkDevice[] = [
       httpEnabled: true,
       httpContent: `
         <div style="font-family: Arial, sans-serif; text-align: center; padding: 20px;">
-          <h1 style="color: #0284c7;">Welcome to Cisco Packet Tracer Web Server</h1>
+          <h1 style="color: #0284c7;">Welcome to the NetLearn Network Simulator</h1>
           <p>Congratulations! Your end-to-end routing, DNS, and HTTP traffic is functioning successfully.</p>
           <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 16px 0;" />
           <p style="font-size: 13px; color: #64748b;">Server-PT (192.168.2.100) running Apache HTTP Service</p>
@@ -133,14 +140,26 @@ const DEFAULT_LINKS: NetworkLink[] = [
 interface PacketSimulatorWorkspaceProps {
   initialDevices?: NetworkDevice[];
   initialLinks?: NetworkLink[];
+  startBlankTopologyOnMount?: boolean;
+  onBlankTopologyStarted?: () => void;
+  openSavedTopologiesOnMount?: boolean;
+  onSavedTopologiesOpened?: () => void;
 }
 
 export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> = ({
   initialDevices,
   initialLinks,
+  startBlankTopologyOnMount = false,
+  onBlankTopologyStarted,
+  openSavedTopologiesOnMount = false,
+  onSavedTopologiesOpened,
 }) => {
-  const [devices, setDevices] = useState<NetworkDevice[]>(initialDevices && initialDevices.length > 0 ? initialDevices : DEFAULT_DEVICES);
-  const [links, setLinks] = useState<NetworkLink[]>(initialLinks && initialLinks.length > 0 ? initialLinks : DEFAULT_LINKS);
+  const [devices, setDevices] = useState<NetworkDevice[]>(
+    startBlankTopologyOnMount ? [] : initialDevices && initialDevices.length > 0 ? initialDevices : DEFAULT_DEVICES
+  );
+  const [links, setLinks] = useState<NetworkLink[]>(
+    startBlankTopologyOnMount ? [] : initialLinks && initialLinks.length > 0 ? initialLinks : DEFAULT_LINKS
+  );
   
   // Selected device
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
@@ -152,10 +171,11 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
   const [selectedCableType, setSelectedCableType] = useState<CableType | null>(null);
 
   // Simulation Mode Controls
-  const [isSimulationMode, setIsSimulationMode] = useState<boolean>(false);
+  const [isSimulationMode, setIsSimulationMode] = useState<boolean>(startBlankTopologyOnMount);
   const [srcDeviceId, setSrcDeviceId] = useState<string>('dev-pc0');
   const [dstDeviceId, setDstDeviceId] = useState<string>('dev-srv0');
   const [protocol, setProtocol] = useState<'ICMP' | 'HTTP' | 'DNS' | 'ARP'>('ICMP');
+  const [messagePayload, setMessagePayload] = useState('Hello from NetLearn');
   const [simulationSteps, setSimulationSteps] = useState<SimulationStep[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(-1);
   const [isPlayingSim, setIsPlayingSim] = useState<boolean>(false);
@@ -167,6 +187,13 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
   const [isFileMenuOpen, setIsFileMenuOpen] = useState<boolean>(false);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState<boolean>(false);
   const [isOpenPrebuiltModalOpen, setIsOpenPrebuiltModalOpen] = useState<boolean>(false);
+  const [isSavedTopologiesOpen, setIsSavedTopologiesOpen] = useState<boolean>(false);
+  const [savedTopologyName, setSavedTopologyName] = useState<string>('');
+  const [savedTopologies, setSavedTopologies] = useState<SavedTopology[]>([]);
+  const [topologyMessage, setTopologyMessage] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
   const [activePrebuiltTab, setActivePrebuiltTab] = useState<'experiments' | 'classic' | 'upload'>('experiments');
   const fileMenuRef = useRef<HTMLDivElement>(null);
 
@@ -211,6 +238,7 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
     setLinks([]);
     setSelectedDeviceId(null);
     handleResetSimulation();
+    setIsSimulationMode(true);
     setIsFileMenuOpen(false);
   };
 
@@ -308,17 +336,46 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
       configMode: 'static',
     };
 
+    if (devices.length === 0) setSrcDeviceId(id);
+    if (devices.length === 1) setDstDeviceId(id);
     setDevices([...devices, newDev]);
     setSelectedDeviceId(id);
   };
 
   // Launch Packet Simulation
   const handleStartSimulation = () => {
-    const trace = generateSimulationTrace(devices, links, srcDeviceId, dstDeviceId, protocol);
+    if (devices.length < 2 || !devices.some((device) => device.id === srcDeviceId) ||
+        !devices.some((device) => device.id === dstDeviceId) || srcDeviceId === dstDeviceId) {
+      setTopologyMessage({ type: 'error', text: 'Add at least two devices and choose different source and destination devices.' });
+      return;
+    }
+    if (protocol !== 'ARP' && !messagePayload.trim()) {
+      setTopologyMessage({ type: 'error', text: 'Enter a message or query before sending.' });
+      return;
+    }
+    if (protocol === 'DNS' &&
+        !/^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?:\.(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?))*$/.test(messagePayload.trim())) {
+      setTopologyMessage({ type: 'error', text: 'Enter a valid DNS hostname such as server.example.' });
+      return;
+    }
+    const trace = generateSimulationTrace(
+      devices,
+      links,
+      srcDeviceId,
+      dstDeviceId,
+      protocol,
+      messagePayload.trim(),
+    );
     setSimulationSteps(trace);
     setCurrentStepIndex(0);
     setIsSimulationMode(true);
-    setIsPlayingSim(false);
+    setIsPlayingSim(trace.length > 1);
+    setTopologyMessage({
+      type: trace.length > 0 ? 'success' : 'error',
+      text: trace.length > 0
+        ? `Simulated ${protocol} message from ${devices.find((device) => device.id === srcDeviceId)?.name} to ${devices.find((device) => device.id === dstDeviceId)?.name}. Follow the packet and event explanation on the canvas.`
+        : 'No simulation events were generated. Check that both selected devices have configured interfaces.',
+    });
   };
 
   const handleStepForward = () => {
@@ -362,33 +419,152 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
       ? simulationSteps[currentStepIndex]
       : null;
 
+  const openSavedTopologies = () => {
+    setTopologyMessage(null);
+    setIsSavedTopologiesOpen(true);
+    try {
+      setSavedTopologies(readSavedTopologies(window.localStorage));
+    } catch (error) {
+      setSavedTopologies([]);
+      setTopologyMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Could not read saved topologies.',
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (!startBlankTopologyOnMount) return;
+    onBlankTopologyStarted?.();
+  }, [startBlankTopologyOnMount, onBlankTopologyStarted]);
+
+  useEffect(() => {
+    if (!openSavedTopologiesOnMount) return;
+    openSavedTopologies();
+    onSavedTopologiesOpened?.();
+  }, [openSavedTopologiesOnMount, onSavedTopologiesOpened]);
+
+  const handleSaveTopologyToBrowser = () => {
+    try {
+      const topology = createTopologyFile(savedTopologyName, devices, links);
+      const existing = readSavedTopologies(window.localStorage);
+      const saved: SavedTopology = {
+        id: `saved-${crypto.randomUUID()}`,
+        name: topology.name,
+        savedAt: new Date().toISOString(),
+        devices: topology.devices,
+        links: topology.links,
+      };
+      const updated = [saved, ...existing.filter((item) => item.name !== saved.name)].slice(0, 25);
+      writeSavedTopologies(window.localStorage, updated);
+      setSavedTopologies(updated);
+      setSavedTopologyName('');
+      setTopologyMessage({ type: 'success', text: `Saved "${saved.name}" in this browser.` });
+    } catch (error) {
+      setTopologyMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Could not save this topology.',
+      });
+    }
+  };
+
+  const handleLoadSavedTopology = (topology: SavedTopology) => {
+    try {
+      createTopologyFile(topology.name, topology.devices, topology.links);
+      setDevices(topology.devices);
+      setLinks(topology.links);
+      handleResetSimulation();
+      setSelectedDeviceId(null);
+      setIsSavedTopologiesOpen(false);
+      setTopologyMessage({ type: 'success', text: `Loaded "${topology.name}".` });
+    } catch (error) {
+      setTopologyMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Could not load this topology.',
+      });
+    }
+  };
+
+  const handleDeleteSavedTopology = (topology: SavedTopology) => {
+    if (!window.confirm(`Delete the saved topology "${topology.name}" from this browser?`)) return;
+    try {
+      const updated = readSavedTopologies(window.localStorage).filter((item) => item.id !== topology.id);
+      writeSavedTopologies(window.localStorage, updated);
+      setSavedTopologies(updated);
+      setTopologyMessage({ type: 'success', text: `Deleted "${topology.name}".` });
+    } catch (error) {
+      setTopologyMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Could not delete this topology.',
+      });
+    }
+  };
+
+  const handleClearSavedTopologies = () => {
+    if (!window.confirm('Clear all NetLearn topologies saved in this browser? This cannot be undone.')) return;
+    try {
+      window.localStorage.removeItem('netlearn.saved-topologies.v1');
+      setSavedTopologies([]);
+      setTopologyMessage({ type: 'success', text: 'Browser topology saves were cleared.' });
+    } catch (error) {
+      setTopologyMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Could not clear browser topology saves.',
+      });
+    }
+  };
+
   // Export Topology
   const handleExportTopology = () => {
-    const data = JSON.stringify({ devices, links, version: 'Cisco-PT-8.2' }, null, 2);
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `cisco-packet-tracer-${Date.now()}.pkt.json`;
-    a.click();
+    try {
+      const topology = createTopologyFile('NetLearn topology', devices, links);
+      const data = JSON.stringify(topology, null, 2);
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `netlearn-topology-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setTopologyMessage({ type: 'success', text: 'Topology exported as NetLearn JSON.' });
+    } catch (error) {
+      setTopologyMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Could not export this topology.',
+      });
+    }
   };
 
   // Import Topology
   const handleImportTopology = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = '';
+    if (file.size > 5 * 1024 * 1024) {
+      setTopologyMessage({ type: 'error', text: 'Topology file is too large. The maximum file size is 5 MB.' });
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const parsed = JSON.parse(event.target?.result as string);
-        if (parsed.devices && parsed.links) {
-          setDevices(parsed.devices);
-          setLinks(parsed.links);
-          handleResetSimulation();
+        if (typeof event.target?.result !== 'string') {
+          throw new Error('The selected topology file could not be read.');
         }
-      } catch {
-        alert('Invalid topology file.');
+        const parsed = parseTopologyFile(event.target.result);
+        setDevices(parsed.devices);
+        setLinks(parsed.links);
+        setSelectedDeviceId(null);
+        handleResetSimulation();
+        setTopologyMessage({ type: 'success', text: `Imported "${parsed.name}".` });
+      } catch (error) {
+        setTopologyMessage({
+          type: 'error',
+          text: error instanceof Error ? error.message : 'Could not import this topology.',
+        });
       }
+    };
+    reader.onerror = () => {
+      setTopologyMessage({ type: 'error', text: 'The selected topology file could not be read.' });
     };
     reader.readAsText(file);
   };
@@ -405,7 +581,7 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1.5 font-bold text-white tracking-wide">
             <span className="w-2.5 h-2.5 rounded bg-sky-500 shadow-[0_0_8px_#0284c7]" />
-            <span>Cisco Packet Tracer</span>
+            <span>NetLearn Network Simulator</span>
           </div>
 
           <div className="hidden sm:flex items-center gap-3 text-slate-400 font-medium text-[11px] relative">
@@ -440,10 +616,23 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
                     <span>Open Lab Topology...</span>
                   </button>
 
+                  <button
+                    onClick={() => {
+                      setIsSavedTopologiesOpen(true);
+                      setSavedTopologyName('');
+                      setIsFileMenuOpen(false);
+                      openSavedTopologies();
+                    }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-slate-800 text-cyan-300 hover:text-cyan-200 flex items-center gap-2"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>Save / Load in This Browser...</span>
+                  </button>
+
                   <label className="w-full text-left px-3 py-1.5 hover:bg-slate-800 text-slate-300 hover:text-white flex items-center gap-2 cursor-pointer">
                     <Upload className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Import .PKT (JSON)...</span>
-                    <input type="file" accept=".json" onChange={handleImportTopology} className="hidden" />
+                    <span>Import NetLearn JSON...</span>
+                    <input type="file" accept=".json,application/json" onChange={handleImportTopology} className="hidden" />
                   </label>
 
                   <div className="h-px bg-slate-800 my-1" />
@@ -453,7 +642,7 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
                     className="w-full text-left px-3 py-1.5 hover:bg-slate-800 text-slate-300 hover:text-white flex items-center gap-2"
                   >
                     <Save className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Save / Export .PKT (JSON)</span>
+                    <span>Export NetLearn JSON...</span>
                   </button>
 
                   <button
@@ -529,30 +718,70 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
           </button>
 
           <button
-            onClick={() => {
-              setDevices(DEFAULT_DEVICES);
-              setLinks(DEFAULT_LINKS);
-              handleResetSimulation();
-            }}
-            className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800"
-            title="Reset Default Topology"
+            onClick={() => setIsSimulationMode(true)}
+            className="flex items-center gap-1 px-2 py-1 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/40 rounded text-cyan-200 text-[11px] font-bold transition-colors"
+            title="Open the message-sending simulation controls"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
+            <Send className="w-3.5 h-3.5" />
+            <span>Send Message</span>
+          </button>
+
+          <button
+            onClick={openSavedTopologies}
+            className="flex items-center gap-1 px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded text-cyan-300 text-[11px] font-medium transition-colors"
+            title="Save or load topologies in this browser"
+          >
+            <FolderOpen className="w-3.5 h-3.5" />
+            <span className="hidden md:inline">Browser Saves</span>
+          </button>
+
+          <button
+            onClick={() => {
+              if (devices.length > 0 && !window.confirm('Start a blank network? Save or export your current topology first if you want to keep it.')) return;
+              handleNewBlankWorkspace();
+            }}
+            className="flex items-center gap-1 px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded text-slate-300 text-[11px] font-medium transition-colors"
+            title="Clear the current workspace and start with an empty network"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>New Network</span>
           </button>
         </div>
       </div>
 
+      {topologyMessage && (
+        <div
+          role={topologyMessage.type === 'error' ? 'alert' : 'status'}
+          className={`flex items-center justify-between gap-3 px-3 py-2 border rounded-lg text-xs ${
+            topologyMessage.type === 'error'
+              ? 'bg-rose-950/60 border-rose-800 text-rose-200'
+              : 'bg-emerald-950/50 border-emerald-800 text-emerald-200'
+          }`}
+        >
+          <span>{topologyMessage.text}</span>
+          <button
+            onClick={() => setTopologyMessage(null)}
+            className="shrink-0 p-1 rounded hover:bg-black/20"
+            aria-label="Dismiss topology message"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Simulation Setup Bar (When in Simulation Mode or testing Packet Flow) */}
       {isSimulationMode && (
-        <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-900/90 border border-slate-800 rounded-lg text-xs animate-in fade-in">
-          <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col gap-3 p-3 bg-slate-900/90 border border-cyan-900 rounded-lg text-xs animate-in fade-in">
+          <div className="flex flex-wrap items-end gap-3">
             <div className="flex items-center gap-1.5">
               <span className="text-slate-400 font-medium">Source:</span>
               <select
                 value={srcDeviceId}
                 onChange={(e) => setSrcDeviceId(e.target.value)}
+                disabled={devices.length === 0}
                 className="px-2 py-1 bg-slate-950 border border-slate-700 rounded text-white font-mono font-bold"
               >
+                {devices.length === 0 && <option value="">Add a source device</option>}
                 {devices.map((d) => (
                   <option key={d.id} value={d.id}>
                     {d.name} ({d.interfaces[0]?.ip || 'No IP'})
@@ -566,8 +795,10 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
               <select
                 value={dstDeviceId}
                 onChange={(e) => setDstDeviceId(e.target.value)}
+                disabled={devices.length === 0}
                 className="px-2 py-1 bg-slate-950 border border-slate-700 rounded text-white font-mono font-bold"
               >
+                {devices.length === 0 && <option value="">Add a destination device</option>}
                 {devices.map((d) => (
                   <option key={d.id} value={d.id}>
                     {d.name} ({d.interfaces[0]?.ip || 'No IP'})
@@ -590,19 +821,38 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
               </select>
             </div>
 
+            <label className="flex min-w-48 flex-1 flex-col gap-1">
+              <span className="text-slate-400 font-medium">
+                {protocol === 'DNS' ? 'DNS name' : protocol === 'ARP' ? 'ARP has no application payload' : 'Message payload'}
+              </span>
+              <input
+                value={messagePayload}
+                onChange={(event) => setMessagePayload(event.target.value)}
+                maxLength={256}
+                disabled={protocol === 'ARP'}
+                placeholder={protocol === 'DNS' ? 'host.example' : 'Type a message to send'}
+                className="w-full px-2 py-1 bg-slate-950 border border-slate-700 rounded text-white disabled:opacity-50"
+              />
+            </label>
+
             <button
               onClick={handleStartSimulation}
-              className="px-3 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded font-bold transition-all shadow-sm"
+              disabled={devices.length < 2 || srcDeviceId === dstDeviceId}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500 hover:bg-cyan-400 disabled:bg-slate-700 disabled:text-slate-400 text-slate-950 rounded font-bold transition-all shadow-sm"
             >
-              Generate Simulation
+              <Send className="w-3.5 h-3.5" />
+              Send Message
             </button>
           </div>
+          <p className="text-[11px] leading-relaxed text-slate-400">
+            Educational simulation only. Configure device addresses and connect ports before sending; the event trace reports delivery or the actual simulated drop reason.
+          </p>
 
           {/* Stepper info */}
           {activeStep && (
             <div className="flex items-center gap-3">
               <span className="font-mono text-slate-300">
-                Step <strong className="text-white">{activeStep.stepIndex + 1}</strong> of{' '}
+                Step <strong className="text-white">{activeStep.stepIndex}</strong> of{' '}
                 <strong className="text-white">{activeStep.totalSteps}</strong>
               </span>
 
@@ -633,6 +883,51 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
           onClearCableType={() => setSelectedCableType(null)}
         />
       </div>
+
+      {simulationSteps.length > 0 && (
+        <section aria-label="Message event timeline" className="overflow-hidden rounded-lg border border-slate-800 bg-slate-950">
+          <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2">
+            <h2 className="flex items-center gap-2 text-xs font-bold text-white">
+              <Activity className="h-4 w-4 text-cyan-300" />
+              Message event timeline
+            </h2>
+            <span className="text-[11px] text-slate-400">{simulationSteps.length} simulated events</span>
+          </div>
+          <ol className="max-h-56 space-y-1 overflow-y-auto p-2">
+            {simulationSteps.map((step, index) => (
+              <li key={`${step.stepIndex}-${step.linkId}-${step.packetName}`}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsPlayingSim(false);
+                    setCurrentStepIndex(index);
+                  }}
+                  aria-current={currentStepIndex === index ? 'step' : undefined}
+                  className={`w-full rounded-md border px-3 py-2 text-left transition-colors ${
+                    currentStepIndex === index
+                      ? 'border-cyan-700 bg-cyan-950/50'
+                      : 'border-transparent hover:border-slate-700 hover:bg-slate-900'
+                  }`}
+                >
+                  <span className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-slate-100">
+                      {step.stepIndex}. {step.explanation.title}
+                    </span>
+                    <span className="font-mono text-[10px] text-cyan-200">
+                      {devices.find((device) => device.id === step.fromDeviceId)?.name || 'Device'}
+                      {' → '}
+                      {devices.find((device) => device.id === step.toDeviceId)?.name || 'Device'}
+                    </span>
+                  </span>
+                  <span className="mt-1 block text-[11px] leading-relaxed text-slate-400">
+                    {step.explanation.decisionReason}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       {/* Cisco Packet Tracer Bottom Component & Cable Palette */}
       <PacketTracerBottomBar
@@ -669,6 +964,111 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
         onClose={() => setIsInspectorOpen(false)}
       />
 
+      {isSavedTopologiesOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="saved-topologies-title"
+            className="w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl"
+          >
+            <header className="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-slate-950">
+              <div>
+                <h2 id="saved-topologies-title" className="text-sm font-bold text-white">
+                  Topologies saved in this browser
+                </h2>
+                <p className="mt-1 text-[11px] text-slate-400">
+                  Private to this browser profile; export a JSON backup to share or move a topology.
+                </p>
+              </div>
+              <button
+                onClick={() => setIsSavedTopologiesOpen(false)}
+                className="p-1.5 rounded text-slate-400 hover:text-white hover:bg-slate-800"
+                aria-label="Close saved topologies"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </header>
+
+            <div className="p-5 overflow-y-auto space-y-5">
+              <form
+                className="flex flex-col sm:flex-row gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  handleSaveTopologyToBrowser();
+                }}
+              >
+                <label className="sr-only" htmlFor="saved-topology-name">Topology name</label>
+                <input
+                  id="saved-topology-name"
+                  value={savedTopologyName}
+                  onChange={(event) => setSavedTopologyName(event.target.value)}
+                  maxLength={100}
+                  required
+                  placeholder="Name this topology"
+                  className="min-w-0 flex-1 px-3 py-2 rounded-lg border border-slate-700 bg-slate-950 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+                <button
+                  type="submit"
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-semibold text-white"
+                >
+                  <Save className="w-4 h-4" />
+                  Save current topology
+                </button>
+              </form>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-300">
+                    Saved topologies ({savedTopologies.length}/25)
+                  </h3>
+                  {savedTopologies.length > 0 && (
+                    <button
+                      onClick={handleClearSavedTopologies}
+                      className="text-[11px] text-rose-300 hover:text-rose-200"
+                    >
+                      Clear all
+                    </button>
+                  )}
+                </div>
+                {savedTopologies.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-slate-700 px-4 py-6 text-center text-xs text-slate-400">
+                    No topologies saved in this browser yet.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-slate-800 rounded-lg border border-slate-800">
+                    {savedTopologies.map((topology) => (
+                      <li key={topology.id} className="flex items-center gap-3 px-3 py-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium text-white">{topology.name}</div>
+                          <div className="mt-0.5 text-[11px] text-slate-400">
+                            {topology.devices.length} devices · {topology.links.length} links ·{' '}
+                            {new Date(topology.savedAt).toLocaleString()}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleLoadSavedTopology(topology)}
+                          className="rounded-md border border-sky-700 px-2.5 py-1.5 text-xs font-semibold text-sky-200 hover:bg-sky-950"
+                        >
+                          Load
+                        </button>
+                        <button
+                          onClick={() => handleDeleteSavedTopology(topology)}
+                          className="rounded-md border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 hover:border-rose-700 hover:text-rose-200"
+                          aria-label={`Delete ${topology.name}`}
+                        >
+                          Delete
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
       {/* Prebuilt Labs & Topology Loader Modal */}
       {isOpenPrebuiltModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
@@ -678,7 +1078,7 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
               <div className="flex items-center gap-2.5">
                 <FolderOpen className="w-5 h-5 text-sky-400" />
                 <h3 className="font-bold text-white text-sm">
-                  Open Cisco Packet Tracer Topology (.PKT)
+                  Open NetLearn Topology
                 </h3>
               </div>
               <button
@@ -934,14 +1334,14 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
                     <Upload className="w-6 h-6" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-white text-sm">Upload Cisco Packet Tracer JSON File</h4>
+                  <h4 className="font-bold text-white text-sm">Import a NetLearn topology file</h4>
                     <p className="text-slate-400 text-xs mt-1 max-w-sm">
-                      Select any previously exported .pkt.json file from your computer to restore its complete device configurations, links, and IP tables.
+                      Select a NetLearn JSON topology file you exported earlier to restore its devices, links, and interface settings. Cisco .pkt files are not supported.
                     </p>
                   </div>
                   <label className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-lg cursor-pointer transition-colors text-xs flex items-center gap-2">
                     <FolderOpen className="w-4 h-4" />
-                    <span>Browse File (.json / .pkt)</span>
+                    <span>Browse NetLearn JSON</span>
                     <input type="file" accept=".json" onChange={handleImportTopology} className="hidden" />
                   </label>
                 </div>
@@ -960,7 +1360,7 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
               <div className="flex items-center gap-2.5">
                 <HelpCircle className="w-5 h-5 text-sky-400" />
                 <h3 className="font-bold text-white text-sm">
-                  Cisco Packet Tracer User Manual & Lab Reference Guide
+                  NetLearn Simulator Guide
                 </h3>
               </div>
               <button
@@ -997,7 +1397,7 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
                   <span>2. How to Configure Host Devices (PC / Laptop / Server)</span>
                 </div>
                 <p className="text-slate-300 leading-relaxed">
-                  1. Click on any PC or Laptop on the canvas. The authentic <strong>Cisco Packet Tracer Window</strong> opens.
+                  1. Click on a PC or laptop on the canvas to open its simulated device panel.
                 </p>
                 <p className="text-slate-300 leading-relaxed">
                   2. Select the <strong>Desktop</strong> tab and click <strong>IP Configuration</strong> to configure IPv4 address, subnet mask, and default gateway.
@@ -1017,10 +1417,10 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
               <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                 <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
                   <Terminal className="w-4 h-4" />
-                  <span>3. How to Configure Routers & Switches (Cisco IOS CLI)</span>
+                  <span>3. Configure Routers & Switches (IOS-style CLI)</span>
                 </div>
                 <p className="text-slate-300 leading-relaxed">
-                  Click on any Router or Switch and select the <strong>CLI</strong> tab. Cisco IOS operates in hierarchical modes:
+                  Click on a router or switch and select the <strong>CLI</strong> tab. The simulated command interface uses familiar IOS-style modes:
                 </p>
                 <div className="p-2.5 bg-black rounded font-mono text-[11px] text-slate-300 space-y-1">
                   <div><span className="text-slate-500">Router&gt;</span> <span className="text-amber-300">enable</span> <span className="text-slate-500">; Enter Privileged EXEC</span></div>
@@ -1038,10 +1438,10 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
                   <span>4. Router Power Switch (ON / OFF) & Boot Sequence</span>
                 </div>
                 <p className="text-slate-300 leading-relaxed">
-                  Every router has a physical rocker switch in the <strong>Physical</strong> chassis tab and a quick <code>PWR: ON / OFF</code> button in the window title bar.
+                  Routers include a simulated power control in the <strong>Physical</strong> chassis tab and a quick <code>PWR: ON / OFF</code> button in the window title bar.
                 </p>
                 <p className="text-slate-300 leading-relaxed">
-                  When powered OFF, the CLI displays a power warning, link lights turn RED, and pings fail. Toggling the power switch back to ON initiates the Cisco IOS Power-On Self Test (POST) and memory decompression before displaying <code>Press RETURN to get started!</code>.
+                  When powered off, the CLI displays a power warning, link lights turn red, and simulated pings fail. Powering on runs the simulator boot sequence before displaying <code>Press RETURN to get started!</code>.
                 </p>
               </div>
 

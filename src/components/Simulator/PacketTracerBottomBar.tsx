@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   Monitor, Laptop, Shuffle, Compass, Server, Radio, Shield, Box,
-  Zap, Cable, Clock, Play, StepForward, RotateCcw, Filter, Activity,
+  Zap, Cable, Clock, Play, Pause, StepForward, RotateCcw, Filter, Activity,
   Printer, Phone
 } from 'lucide-react';
 import { DeviceType, CableType } from '../../types/network';
@@ -84,8 +84,9 @@ export const PacketTracerBottomBar: React.FC<PacketTracerBottomBarProps> = ({
                 onClick={onTogglePlaySim}
                 className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400"
                 title={isPlayingSim ? 'Pause' : 'Play Packet Simulation'}
+                aria-label={isPlayingSim ? 'Pause packet simulation' : 'Play packet simulation'}
               >
-                <Play className="w-3.5 h-3.5" />
+                {isPlayingSim ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
               </button>
               <button
                 onClick={onStepForwardSim}

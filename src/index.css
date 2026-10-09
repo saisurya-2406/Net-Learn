@@ -1,13 +1,30 @@
 @import "tailwindcss";
 
+@theme {
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+}
+
 @layer base {
   body {
-    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    text-rendering: optimizeLegibility;
   }
   
   code, pre, kbd, .font-mono {
     font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
     font-variant-numeric: tabular-nums;
+  }
+}
+
+@keyframes packet-travel {
+  from {
+    translate: 0 0;
+  }
+  to {
+    translate: var(--packet-dx) var(--packet-dy);
   }
 }
 
@@ -28,4 +45,59 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(71, 85, 105, 1);
+}
+@keyframes dashboard-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes network-dash {
+  to { stroke-dashoffset: -120; }
+}
+
+.network-flow-line {
+  animation: network-dash 10s linear infinite;
+}
+
+.network-node-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: network-node-pulse 4.8s ease-in-out infinite;
+}
+
+.network-delay-1 { animation-delay: 650ms; }
+.network-delay-2 { animation-delay: 1.3s; }
+.network-delay-3 { animation-delay: 1.95s; }
+
+.network-packet-dot {
+  offset-path: path("M 100 105 L 248 168 L 406 82");
+  offset-rotate: 0deg;
+  animation: network-packet 8s linear infinite;
+}
+
+.network-packet-return {
+  offset-path: path("M 112 270 L 248 168 L 406 262");
+  animation-duration: 9s;
+  animation-delay: 1.8s;
+}
+
+@keyframes network-node-pulse {
+  0%, 100% { opacity: .82; transform: scale(1); }
+  50% { opacity: .98; transform: scale(1.018); }
+}
+
+@keyframes network-packet {
+  from { offset-distance: 0%; opacity: 0; }
+  8% { opacity: 1; }
+  92% { opacity: 1; }
+  to { offset-distance: 100%; opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

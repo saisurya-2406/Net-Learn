@@ -6,12 +6,14 @@ import {
 } from 'lucide-react';
 import { ACADEMIC_EXPERIMENTS, AcademicExperiment, VisualStep } from '../../data/labData';
 import { NetworkDevice, NetworkLink } from '../../types/network';
+import { buildLabVideoSearchUrl } from '../../utils/labResourceLinks';
 
 interface LabsAndTroubleshootViewProps {
   onLoadTopology: (devices: NetworkDevice[], links: NetworkLink[]) => void;
   onNavigateToSimulator: () => void;
   currentDevices: NetworkDevice[];
   currentLinks: NetworkLink[];
+  initialExperimentId?: string;
 }
 
 export const LabsAndTroubleshootView: React.FC<LabsAndTroubleshootViewProps> = ({
@@ -19,11 +21,12 @@ export const LabsAndTroubleshootView: React.FC<LabsAndTroubleshootViewProps> = (
   onNavigateToSimulator,
   currentDevices,
   currentLinks,
+  initialExperimentId,
 }) => {
-  const [selectedExpId, setSelectedExpId] = useState<string>('exp-1');
+  const [selectedExpId, setSelectedExpId] = useState<string>(initialExperimentId ?? 'exp-1');
   const [activeVisualStepIdx, setActiveVisualStepIdx] = useState<number>(0);
   const [isCopied, setIsCopied] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<'procedure' | 'visualizer' | 'viva'>('procedure');
+  const [activeTab, setActiveTab] = useState<'procedure' | 'visualizer'>('procedure');
   const [isNotesModalOpen, setIsNotesModalOpen] = useState<boolean>(false);
 
   const currentExp: AcademicExperiment = 
@@ -53,13 +56,13 @@ export const LabsAndTroubleshootView: React.FC<LabsAndTroubleshootViewProps> = (
               Academic Lab Curriculum
             </span>
             <span className="text-slate-500 text-xs">•</span>
-            <span className="text-slate-400 text-xs">Official Syllabus Labs (1 to 15)</span>
+            <span className="text-slate-400 text-xs">Guided Syllabus Experiments</span>
           </div>
           <h2 className="text-xl font-bold text-white tracking-tight mt-1">
             Computer Networks Laboratory Experiments
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Complete practical experiments with step-by-step visual demonstrations, Cisco Packet Tracer topologies, GeeksforGeeks reference articles, and YouTube tutorials.
+            Complete practical experiments with step-by-step visual demonstrations, NetLearn simulator topologies, reference articles, and video resources.
           </p>
         </div>
 
@@ -68,7 +71,7 @@ export const LabsAndTroubleshootView: React.FC<LabsAndTroubleshootViewProps> = (
           className="flex items-center justify-center gap-2 px-4 py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-lg transition-all shadow-md shadow-sky-600/30 text-xs whitespace-nowrap"
         >
           <Play className="w-4 h-4" />
-          <span>Load Exp {currentExp.number} into Packet Tracer</span>
+          <span>Load Exp {currentExp.number} into Simulator</span>
         </button>
       </div>
 
@@ -138,7 +141,7 @@ export const LabsAndTroubleshootView: React.FC<LabsAndTroubleshootViewProps> = (
                 className="flex items-center gap-1.5 px-3 py-1 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 rounded text-xs font-semibold transition-colors"
               >
                 <Play className="w-3.5 h-3.5" />
-                <span>Open in Packet Tracer</span>
+                <span>Open in Simulator</span>
               </button>
             </div>
 
@@ -165,7 +168,7 @@ export const LabsAndTroubleshootView: React.FC<LabsAndTroubleshootViewProps> = (
             </div>
           </div>
 
-          {/* Sub-Tabs: Procedure & Commands | Visual Explanation | Viva Voce */}
+          {/* Lab procedure and interactive visual explanation */}
           <div className="flex items-center gap-2 border-b border-slate-800 pb-1 text-xs font-semibold">
             <button
               onClick={() => setActiveTab('procedure')}
@@ -187,16 +190,6 @@ export const LabsAndTroubleshootView: React.FC<LabsAndTroubleshootViewProps> = (
             >
               <Cpu className="w-3.5 h-3.5 text-amber-400" />
               <span>Interactive Visual Demonstration</span>
-            </button>
-            <button
-              onClick={() => setActiveTab('viva')}
-              className={`px-3 py-1.5 rounded-t-md transition-colors ${
-                activeTab === 'viva'
-                  ? 'bg-sky-600 text-white'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Oral Viva Questions & Answers
             </button>
           </div>
 
@@ -353,35 +346,12 @@ export const LabsAndTroubleshootView: React.FC<LabsAndTroubleshootViewProps> = (
             </div>
           )}
 
-          {/* TAB 3: ORAL VIVA QUESTIONS */}
-          {activeTab === 'viva' && (
-            <div className="space-y-3">
-              <h4 className="font-bold text-white text-xs uppercase tracking-wider text-slate-300 mb-2">
-                Frequently Asked Lab Viva Examination Questions
-              </h4>
-              <div className="space-y-3">
-                {currentExp.vivaQuestions.map((vq, i) => (
-                  <div key={i} className="p-3.5 rounded-lg bg-slate-950 border border-slate-800 space-y-1.5 text-xs">
-                    <div className="font-bold text-sky-400 flex items-start gap-2">
-                      <span className="font-mono text-slate-500">Q{i + 1}.</span>
-                      <span>{vq.question}</span>
-                    </div>
-                    <div className="pl-6 text-slate-300 leading-relaxed font-sans">
-                      <strong className="text-slate-400">Ans: </strong>
-                      {vq.answer}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Educational Curated Links Box (GeeksforGeeks & YouTube) */}
+          {/* Reference links and topic-matched video search */}
           <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-3 mt-2">
             <div className="flex items-center justify-between">
               <h4 className="font-bold text-white text-xs uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
                 <BookOpen className="w-3.5 h-3.5 text-sky-400" />
-                <span>Curated GeeksforGeeks & YouTube Reference Material</span>
+                <span>References & video resources</span>
               </h4>
               <button
                 onClick={() => setIsNotesModalOpen(true)}
@@ -402,11 +372,11 @@ export const LabsAndTroubleshootView: React.FC<LabsAndTroubleshootViewProps> = (
               >
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 rounded bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold font-mono text-[10px]">
-                    {currentExp.resources.referenceSource === 'Cloudflare' ? 'CF' : 'GFG'}
+                    {currentExp.resources.referenceSource === 'Cloudflare' ? 'CF' : currentExp.resources.referenceSource === 'RFC Editor' ? 'RFC' : 'GFG'}
                   </div>
                   <div>
                     <div className="font-bold text-emerald-300 group-hover:text-emerald-200">
-                      {currentExp.resources.referenceSource || 'GeeksforGeeks'} Tutorial Guide
+                      {currentExp.resources.referenceSource || 'Reference'}
                     </div>
                     <div className="text-[11px] text-slate-400 line-clamp-1">
                       {currentExp.resources.referenceTitle || currentExp.resources.geeksForGeeksTitle}
@@ -418,7 +388,7 @@ export const LabsAndTroubleshootView: React.FC<LabsAndTroubleshootViewProps> = (
 
               {/* YouTube Tutorial Link */}
               <a
-                href={currentExp.resources.youtubeUrl}
+                href={buildLabVideoSearchUrl(currentExp)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-between p-3 rounded-lg bg-rose-950/20 border border-rose-500/30 hover:border-rose-400 hover:bg-rose-950/30 transition-all group"
@@ -429,10 +399,10 @@ export const LabsAndTroubleshootView: React.FC<LabsAndTroubleshootViewProps> = (
                   </div>
                   <div>
                     <div className="font-bold text-rose-300 group-hover:text-rose-200">
-                      YouTube Video Lecture
+                      Search YouTube
                     </div>
                     <div className="text-[11px] text-slate-400 line-clamp-1">
-                      {currentExp.resources.youtubeTitle} ({currentExp.resources.youtubeChannel})
+                      {currentExp.resources.youtubeTitle} · topic-matched results
                     </div>
                   </div>
                 </div>
@@ -505,7 +475,7 @@ export const LabsAndTroubleshootView: React.FC<LabsAndTroubleshootViewProps> = (
                   className="px-4 py-1.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded text-xs flex items-center gap-1.5 shadow-md"
                 >
                   <Play className="w-3.5 h-3.5" />
-                  <span>Load into Packet Tracer</span>
+                  <span>Load into Simulator</span>
                 </button>
               </div>
             </div>

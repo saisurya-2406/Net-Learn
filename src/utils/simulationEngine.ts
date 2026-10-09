@@ -1,5 +1,175 @@
-import { NetworkDevice, NetworkLink, SimulationStep, PacketHeaders } from '../types/network';
-import { ipToNumber, prefixToNumber } from './networkingMath';
+import { NetworkDevice, NetworkLink, PacketHeaders, SimulationStep } from '../types/network';
+import { ipToNumber } from './networkingMath';
+
+function parseIpv4(ip: string): number | null {
+  const octets = ip.split('.');
+  if (octets.length !== 4 || octets.some((octet) => !/^\d{1,3}$/.test(octet))) {
+    return null;
+  }
+
+  const values = octets.map(Number);
+  if (values.some((octet) => octet < 0 || octet > 255)) return null;
+
+  return values.reduce((value, octet) => ((value << 8) | octet) >>> 0, 0);
+}
+
+function isValidSubnetMask(mask: string): boolean {
+  const value = parseIpv4(mask);
+  if (value === null) return false;
+
+  const inverted = (~value) >>> 0;
+  return (inverted & (inverted + 1)) === 0;
+}
+
+function prefixLength(mask: string): number {
+  const value = parseIpv4(mask);
+  return value === null ? -1 : value.toString(2).replace(/0/g, '').length;
+}
+
+function normalizedInterfaceName(name: string): string {
+  const normalized = name.toLowerCase().replace(/[^a-z0-9/]/g, '');
+  return normalized
+    .replace(/^gigabitethernet/, 'gi')
+    .replace(/^fastethernet/, 'fa')
+    .replace(/^tengigabitethernet/, 'te')
+    .replace(/^serial/, 'se');
+}
+
+function getDevicePortOnLink(link: NetworkLink, deviceId: string): string | null {
+  if (link.sourceDeviceId === deviceId) return link.sourcePortId;
+  if (link.targetDeviceId === deviceId) return link.targetPortId;
+  return null;
+}
+
+function hasGatewayOnPath(
+  devices: NetworkDevice[],
+  path: string[],
+  gateway: string | undefined,
+  hostIp: string,
+  subnetMask: string,
+): boolean {
+  if (!gateway || parseIpv4(gateway) === null) return false;
+  return path.some((deviceId) => {
+    const device = devices.find((item) => item.id === deviceId);
+    return device?.type === 'router' &&
+      device.powerState === 'on' &&
+      device.interfaces.some((networkInterface) =>
+        networkInterface.status === 'up' &&
+        networkInterface.ip === gateway &&
+        isSameSubnet(hostIp, networkInterface.ip, subnetMask)
+      );
+  });
+}
+
+function hasForwardingRoute(
+  router: NetworkDevice,
+  egressInterfaceId: string,
+  destinationIp: string,
+): boolean {
+  const egressInterface = router.interfaces.find((networkInterface) =>
+    networkInterface.id === egressInterfaceId && networkInterface.status === 'up'
+  );
+  if (!egressInterface) return false;
+
+  const destination = parseIpv4(destinationIp);
+  if (destination === null) return false;
+
+  const routes: Array<{ mask: number; network: number; prefix: number; interfaceId: string }> = [];
+  for (const networkInterface of router.interfaces) {
+    if (networkInterface.status !== 'up' || !networkInterface.ip ||
+        !networkInterface.subnetMask || !isValidSubnetMask(networkInterface.subnetMask)) {
+      continue;
+    }
+
+    const address = parseIpv4(networkInterface.ip);
+    const mask = parseIpv4(networkInterface.subnetMask);
+    if (address !== null && mask !== null) {
+      routes.push({
+        mask,
+        network: (address & mask) >>> 0,
+        prefix: prefixLength(networkInterface.subnetMask),
+        interfaceId: networkInterface.id,
+      });
+    }
+  }
+
+  for (const route of router.routingTable || []) {
+    const network = parseIpv4(route.destinationNetwork);
+    const mask = parseIpv4(route.subnetMask);
+    const networkInterface = router.interfaces.find((item) =>
+      normalizedInterfaceName(item.name) === normalizedInterfaceName(route.interfaceName)
+    );
+    if (network !== null && mask !== null && networkInterface?.status === 'up' &&
+        isValidSubnetMask(route.subnetMask)) {
+      routes.push({
+        mask,
+        network: (network & mask) >>> 0,
+        prefix: prefixLength(route.subnetMask),
+        interfaceId: networkInterface.id,
+      });
+    }
+  }
+
+  const matchingRoutes = routes
+    .filter((route) => (destination & route.mask) >>> 0 === route.network)
+    .sort((left, right) => right.prefix - left.prefix);
+  return matchingRoutes[0]?.interfaceId === egressInterface.id;
+}
+
+function createDropStep(
+  device: NetworkDevice,
+  protocol: SimulationStep['protocol'],
+  title: string,
+  reason: string,
+  sourceIp?: string,
+  destinationIp?: string,
+): SimulationStep {
+  const sourceMac = device.interfaces[0]?.mac || '00:00:00:00:00:01';
+  const ethernetType = protocol === 'ARP' ? '0x0806 (ARP)' : '0x0800 (IPv4)';
+
+  return {
+    stepIndex: 1,
+    totalSteps: 1,
+    fromDeviceId: device.id,
+    toDeviceId: device.id,
+    linkId: '',
+    protocol,
+    packetName: `${protocol} Drop Error`,
+    headers: {
+      ethernet: {
+        preamble: '1010101010101011',
+        sourceMac,
+        destMac: '00:00:00:00:00:00',
+        type: ethernetType,
+        fcs: '0x00000000',
+      },
+      ...(protocol !== 'ARP' && sourceIp && destinationIp && {
+        ip: {
+          version: 4,
+          ihl: 5,
+          dscp: '0x00',
+          totalLength: 60,
+          identification: '0x0000',
+          flags: '0x02 (DF set)',
+          fragmentOffset: 0,
+          ttl: 64,
+          protocol: protocol === 'HTTP' ? 'TCP (6)' : protocol === 'DNS' ? 'UDP (17)' : 'ICMP (1)',
+          headerChecksum: 'not calculated',
+          sourceIp,
+          destIp: destinationIp,
+        },
+      }),
+      payload: reason,
+    },
+    explanation: {
+      title,
+      whatHappened: reason,
+      decisionReason: reason,
+      layerMechanism: 'IPv4 configuration validation',
+      rulesApplied: [reason],
+    },
+  };
+}
 
 // Check if two IPv4 addresses are in the same subnet
 export function isSameSubnet(ip1: string, ip2: string, mask: string): boolean {
@@ -21,6 +191,17 @@ export function findDevicePath(
   startId: string,
   endId: string
 ): { path: string[]; linkIds: string[] } | null {
+  const devicesById = new Map(devices.map((device) => [device.id, device]));
+  const isOperationalEndpoint = (deviceId: string, interfaceId: string) => {
+    const device = devicesById.get(deviceId);
+    const networkInterface = device?.interfaces.find((item) => item.id === interfaceId);
+    return device?.powerState === 'on' &&
+      networkInterface?.status === 'up' &&
+      !networkInterface.isConsole;
+  };
+
+  if (!devicesById.has(startId) || !devicesById.has(endId)) return null;
+
   const queue: Array<{ current: string; path: string[]; linkIds: string[] }> = [
     { current: startId, path: [startId], linkIds: [] },
   ];
@@ -36,6 +217,9 @@ export function findDevicePath(
     const connectedLinks = links.filter(
       (l) =>
         l.status === 'up' &&
+        l.cableType !== 'console' &&
+        isOperationalEndpoint(l.sourceDeviceId, l.sourcePortId) &&
+        isOperationalEndpoint(l.targetDeviceId, l.targetPortId) &&
         (l.sourceDeviceId === current || l.targetDeviceId === current)
     );
 
@@ -62,7 +246,8 @@ export function generateSimulationTrace(
   links: NetworkLink[],
   srcDeviceId: string,
   dstDeviceId: string,
-  protocol: 'ICMP' | 'HTTP' | 'DNS' | 'ARP' = 'ICMP'
+  protocol: 'ICMP' | 'HTTP' | 'DNS' | 'ARP' = 'ICMP',
+  messagePayload = 'Hello from NetLearn',
 ): SimulationStep[] {
   const srcDevice = devices.find((d) => d.id === srcDeviceId);
   const dstDevice = devices.find((d) => d.id === dstDeviceId);
@@ -75,6 +260,7 @@ export function generateSimulationTrace(
   const srcIp = srcIface?.ip || '0.0.0.0';
   const dstIp = dstIface?.ip || '0.0.0.0';
   const srcMask = srcIface?.subnetMask || '255.255.255.0';
+  const dstMask = dstIface?.subnetMask || '255.255.255.0';
   const srcMac = srcIface?.mac || '00:00:00:00:00:01';
   const dstMac = dstIface?.mac || '00:00:00:00:00:02';
 
@@ -96,19 +282,20 @@ export function generateSimulationTrace(
           preamble: '1010101010101011',
           sourceMac: srcMac,
           destMac: 'FF:FF:FF:FF:FF:FF',
-          type: '0x0800 (IPv4)',
+          type: protocol === 'ARP' ? '0x0806 (ARP)' : '0x0800 (IPv4)',
           fcs: '0x00000000',
         },
-        payload: 'Packet dropped at NIC: No physical link or path exists to reach destination.',
+        payload: 'Packet dropped at NIC: No operational physical path reaches the destination. Check device power, interface state, and link endpoints.',
       },
       explanation: {
-        title: 'Transmission Failed: No Physical Layer 1 Link',
-        whatHappened: `Device ${srcDevice.name} attempted to transmit, but no active cable link connects it toward ${dstDevice.name}.`,
-        decisionReason: 'Physical layer interfaces must be cabled with status "up" to form an electrical or optical circuit.',
+        title: 'Transmission Failed: No Operational Physical Path',
+        whatHappened: `Device ${srcDevice.name} attempted to transmit, but no operational physical path reaches ${dstDevice.name}.`,
+        decisionReason: 'A path requires powered-on devices, active network interfaces at both link endpoints, and links that are up.',
         layerMechanism: 'Layer 1 Physical Signaling Failure',
         rulesApplied: [
-          'Packets cannot traverse disconnected physical ports.',
-          'Verify cable links in the canvas and ensure interface status is set to UP.',
+          'Packets cannot traverse links whose endpoint interface is disabled or whose device is powered off.',
+          'Console cables are management connections and are not simulated as packet-carrying links.',
+          'This reachability check models physical connectivity only; it does not prove routing or application delivery.',
         ],
       },
     });
@@ -116,55 +303,112 @@ export function generateSimulationTrace(
   }
 
   const { path, linkIds } = pathResult;
+
+  if (parseIpv4(srcIp) === null || parseIpv4(dstIp) === null) {
+    return [createDropStep(
+      srcDevice,
+      protocol,
+      'Invalid IPv4 Address',
+      `A valid IPv4 address is required at both endpoints. Source: ${srcIp}; destination: ${dstIp}.`,
+      srcIp,
+      dstIp,
+    )];
+  }
+
+  if (!srcIface?.subnetMask || !dstIface?.subnetMask ||
+      !isValidSubnetMask(srcMask) || !isValidSubnetMask(dstMask)) {
+    return [createDropStep(
+      srcDevice,
+      protocol,
+      'Invalid Subnet Mask',
+      `Both endpoint interfaces need valid, contiguous IPv4 subnet masks. Source: ${srcMask}; destination: ${dstMask}.`,
+      srcIp,
+      dstIp,
+    )];
+  }
+
+  const activeAddresses = devices
+    .filter((device) => device.powerState === 'on')
+    .flatMap((device) => device.interfaces
+      .filter((networkInterface) => networkInterface.status === 'up')
+      .map((networkInterface) => ({ ip: networkInterface.ip, device: device.name })));
+  const duplicateEndpointAddress = [srcIp, dstIp].find((address) =>
+    activeAddresses.filter((active) => active.ip === address).length > 1
+  );
+
+  if (duplicateEndpointAddress) {
+    const conflictNames = activeAddresses
+      .filter((active) => active.ip === duplicateEndpointAddress)
+      .map((active) => active.device);
+    return [createDropStep(
+      srcDevice,
+      protocol,
+      'Duplicate IPv4 Address',
+      `IPv4 address ${duplicateEndpointAddress} is configured on multiple active interfaces (${conflictNames.join(', ')}).`,
+      srcIp,
+      dstIp,
+    )];
+  }
+
   const isLocal = isSameSubnet(srcIp, dstIp, srcMask);
+
+  if (protocol === 'ARP' && !isLocal) {
+    return [createDropStep(
+      srcDevice,
+      protocol,
+      'ARP Cannot Cross a Router',
+      `ARP resolves local-link IPv4 neighbors; ${dstIp} is outside ${srcDevice.name}'s subnet and ARP requests are not routed.`,
+      srcIp,
+      dstIp,
+    )];
+  }
 
   // Check default gateway if remote
   if (!isLocal && !srcDevice.defaultGateway) {
-    steps.push({
-      stepIndex: 1,
-      totalSteps: 1,
-      fromDeviceId: srcDeviceId,
-      toDeviceId: srcDeviceId,
-      linkId: '',
+    return [createDropStep(
+      srcDevice,
       protocol,
-      packetName: 'Destination Host Unreachable',
-      headers: {
-        ethernet: {
-          preamble: '1010101010101011',
-          sourceMac: srcMac,
-          destMac: '00:00:00:00:00:00',
-          type: '0x0800 (IPv4)',
-          fcs: '0x00000000',
-        },
-        ip: {
-          version: 4,
-          ihl: 5,
-          dscp: '0x00',
-          totalLength: 60,
-          identification: '0x1A2B',
-          flags: '0x02 (Don\'t Fragment)',
-          fragmentOffset: 0,
-          ttl: 64,
-          protocol: 'ICMP (1)',
-          headerChecksum: '0x4F12',
-          sourceIp: srcIp,
-          destIp: dstIp,
-        },
-        payload: 'ICMP Destination Host Unreachable: No Default Gateway configured on sender.',
-      },
-      explanation: {
-        title: 'Missing Default Gateway Error',
-        whatHappened: `${srcDevice.name} realized that destination IP ${dstIp} is outside its local subnet (${srcMask}). Because no Default Gateway is configured, ${srcDevice.name} has no router to forward the packet to.`,
-        decisionReason: 'A host performs a bitwise AND between destination IP and its subnet mask. If they differ, the packet MUST be forwarded to the Default Gateway.',
-        layerMechanism: 'Layer 3 Subnet Boundary Routing Rule',
-        rulesApplied: [
-          'Remote subnets cannot be reached without an IP Default Gateway.',
-          'Open Device Configuration and configure the Default Gateway to match the local router interface IP.',
-        ],
-      },
-    });
-    return steps;
+      'Missing Default Gateway',
+      `${srcDevice.name} identified ${dstIp} as outside its local subnet but has no default gateway configured.`,
+      srcIp,
+      dstIp,
+    )];
   }
+
+  if (!isLocal) {
+    if (!hasGatewayOnPath(devices, path, srcDevice.defaultGateway, srcIp, srcMask)) {
+      return [createDropStep(
+        srcDevice,
+        protocol,
+        'Default Gateway Is Not Reachable',
+        `Configured gateway ${srcDevice.defaultGateway || '(invalid)'} is not an active router interface on the source subnet and physical path.`,
+        srcIp,
+        dstIp,
+      )];
+    }
+  }
+
+  for (let pathIndex = 1; pathIndex < path.length - 1; pathIndex++) {
+    const router = devices.find((device) => device.id === path[pathIndex]);
+    if (router?.type !== 'router') continue;
+
+    const outgoingLink = links.find((link) => link.id === linkIds[pathIndex]);
+    const egressInterfaceId = outgoingLink && getDevicePortOnLink(outgoingLink, router.id);
+    if (!egressInterfaceId ||
+        !hasForwardingRoute(router, egressInterfaceId, dstIp)) {
+      return [createDropStep(
+        router,
+        protocol,
+        'No Route to Destination',
+        `${router.name} has no active longest-prefix route to ${dstIp} through the physical path's outgoing interface.`,
+        srcIp,
+        dstIp,
+      )];
+    }
+  }
+
+  const returnPath = [...path].reverse();
+  const returnLinkIds = [...linkIds].reverse();
 
   // Build hop-by-hop forwarding steps
   let ttl = 64;
@@ -232,7 +476,7 @@ export function generateSimulationTrace(
         version: 4,
         ihl: 5,
         dscp: '0x00',
-        totalLength: protocol === 'HTTP' ? 240 : 64,
+        totalLength: protocol === 'HTTP' ? 40 + new TextEncoder().encode(messagePayload).length : 64,
         identification: `0x${(1000 + i).toString(16).toUpperCase()}`,
         flags: '0x02 (Don\'t Fragment)',
         fragmentOffset: 0,
@@ -253,10 +497,10 @@ export function generateSimulationTrace(
       },
       payload:
         protocol === 'HTTP'
-          ? 'GET /index.html HTTP/1.1\r\nHost: ' + dstIp
+          ? `POST /message HTTP/1.1\r\nHost: ${dstIp}\r\nContent-Type: text/plain\r\nContent-Length: ${new TextEncoder().encode(messagePayload).length}\r\n\r\n${messagePayload}`
           : protocol === 'DNS'
-          ? 'Standard Query: A record for www.netlearn.internal'
-          : 'abcdefghijklmnopqrstuvwabcdefghi (32 Bytes ICMP Echo Data)',
+          ? `Standard Query: A record for ${messagePayload}`
+          : messagePayload,
     };
 
     steps.push({
@@ -278,10 +522,50 @@ export function generateSimulationTrace(
     });
   }
 
-  // Return trip (Echo Reply / Response)
-  const returnPath = [...path].reverse();
-  const returnLinkIds = [...linkIds].reverse();
+  const appendReturnDrop = (device: NetworkDevice, title: string, reason: string) => {
+    const drop = createDropStep(device, protocol, title, reason, dstIp, srcIp);
+    steps.push({
+      ...drop,
+      stepIndex: steps.length + 1,
+      totalSteps: steps.length + 1,
+    });
+    steps.forEach((step, index) => {
+      step.stepIndex = index + 1;
+      step.totalSteps = steps.length;
+    });
+    return steps;
+  };
 
+  if (!isLocal && !hasGatewayOnPath(
+    devices,
+    returnPath,
+    dstDevice.defaultGateway,
+    dstIp,
+    dstMask,
+  )) {
+    return appendReturnDrop(
+      dstDevice,
+      'No Return Gateway',
+      `${dstDevice.name} received the request, but has no active default gateway on the return path to ${srcIp}.`,
+    );
+  }
+
+  for (let pathIndex = 1; pathIndex < returnPath.length - 1; pathIndex++) {
+    const router = devices.find((device) => device.id === returnPath[pathIndex]);
+    if (router?.type !== 'router') continue;
+
+    const outgoingLink = links.find((link) => link.id === returnLinkIds[pathIndex]);
+    const egressInterfaceId = outgoingLink && getDevicePortOnLink(outgoingLink, router.id);
+    if (!egressInterfaceId || !hasForwardingRoute(router, egressInterfaceId, srcIp)) {
+      return appendReturnDrop(
+        router,
+        'No Return Route',
+        `${router.name} has no active longest-prefix route to ${srcIp} through the return path's outgoing interface.`,
+      );
+    }
+  }
+
+  // Return trip (Echo Reply / Response)
   for (let j = 0; j < returnPath.length - 1; j++) {
     const hopFromId = returnPath[j];
     const hopToId = returnPath[j + 1];
@@ -322,10 +606,10 @@ export function generateSimulationTrace(
       },
       payload:
         protocol === 'HTTP'
-          ? 'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<h1>Welcome to NetLearn</h1>'
+          ? `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n${messagePayload}`
           : protocol === 'DNS'
-          ? 'Standard Query Response: 192.168.10.100'
-          : 'abcdefghijklmnopqrstuvwabcdefghi (32 Bytes Echo Reply Payload)',
+          ? `Standard Query Response for ${messagePayload} (educational example)`
+          : messagePayload,
     };
 
     steps.push({

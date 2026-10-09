@@ -331,7 +331,7 @@ export const LABS_PART_2: AcademicExperiment[] = [
       ]
     },
     resources: {
-      referenceUrl: 'https://www.geeksforgeeks.org/subnetting/',
+      referenceUrl: 'https://www.geeksforgeeks.org/computer-networks/introduction-to-subnetting/',
       referenceTitle: 'GeeksforGeeks - Subnetting',
       referenceSource: 'GeeksforGeeks',
       geeksForGeeksUrl: 'https://www.geeksforgeeks.org/subnetting/',

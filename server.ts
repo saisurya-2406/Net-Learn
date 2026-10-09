@@ -145,72 +145,6 @@ Here is the key breakdown for **${question}**:
   return res.json({ reply: offlineReply, source: 'offline-knowledge-base' });
 });
 
-// 2. Viva Voce Answer Evaluation Endpoint
-app.post('/api/ai/viva-evaluate', async (req, res) => {
-  const { question, studentAnswer, expectedConcepts } = req.body;
-
-  if (!question || !studentAnswer) {
-    return res.status(400).json({ error: 'Question and studentAnswer are required' });
-  }
-
-  if (aiClient) {
-    try {
-      const response = await aiClient.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: `Evaluate this viva voce networking examination answer:
-Question: "${question}"
-Student's Answer: "${studentAnswer}"
-Key concepts expected: ${JSON.stringify(expectedConcepts || [])}
-
-Return a constructive evaluation formatted as JSON with these keys:
-{
-  "score": number between 0 and 100,
-  "conceptCoverage": ["list of covered key concepts"],
-  "missedConcepts": ["list of missed or weak concepts"],
-  "feedback": "2-3 sentences of constructive professor critique",
-  "modelAnswer": "An exemplary 3-4 sentence viva answer that would score 100%",
-  "followUpQuestion": "A sharp follow-up viva question"
-}`,
-        config: {
-          responseMimeType: 'application/json',
-        },
-      });
-
-      const parsed = JSON.parse(response.text || '{}');
-      return res.json(parsed);
-    } catch (err: any) {
-      console.error('Gemini viva evaluation failed:', err?.message || err);
-    }
-  }
-
-  // Fallback keyword scoring
-  const lowerAns = studentAnswer.toLowerCase();
-  const covered: string[] = [];
-  const missed: string[] = [];
-
-  (expectedConcepts || ['protocol', 'layer', 'address', 'header']).forEach((c: string) => {
-    if (lowerAns.includes(c.toLowerCase())) {
-      covered.push(c);
-    } else {
-      missed.push(c);
-    }
-  });
-
-  const ratio = covered.length / Math.max(1, (expectedConcepts || []).length);
-  const score = Math.min(100, Math.round(40 + ratio * 60));
-
-  return res.json({
-    score,
-    conceptCoverage: covered,
-    missedConcepts: missed,
-    feedback: score >= 80 
-      ? 'Strong grasp of the foundational principles! You articulated the primary mechanisms clearly.'
-      : 'Good attempt, but make sure to explicitly mention the exact layer, protocol headers, and sequence of events.',
-    modelAnswer: `For ${question}, state the layer (OSI/TCP-IP), purpose, exact packet exchanges (e.g. headers, flags), and how it differs from adjacent protocols.`,
-    followUpQuestion: `How does this mechanism behave when a network partition or packet loss occurs?`,
-  });
-});
-
 // Mount Vite in dev or static files in production
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
@@ -232,4 +166,10 @@ async function startServer() {
   });
 }
 
-startServer();
+// Vercel imports the Express app as a serverless function. Keep the listener
+// for local and traditional Node deployments, but do not open a port there.
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;

@@ -74,7 +74,7 @@ export const LABS_PART_1: AcademicExperiment[] = [
       ]
     },
     resources: {
-      referenceUrl: 'https://www.geeksforgeeks.org/computer-network-tutorial/',
+      referenceUrl: 'https://www.geeksforgeeks.org/computer-networks/computer-network-tutorials/',
       referenceTitle: 'GeeksforGeeks - Computer Network Tutorial',
       referenceSource: 'GeeksforGeeks',
       geeksForGeeksUrl: 'https://www.geeksforgeeks.org/computer-network-tutorial/',
@@ -292,7 +292,7 @@ export const LABS_PART_1: AcademicExperiment[] = [
       ]
     },
     resources: {
-      referenceUrl: 'https://www.geeksforgeeks.org/network-devices-hub-switch-router-gateway/',
+      referenceUrl: 'https://www.geeksforgeeks.org/computer-networks/network-devices-hub-repeater-bridge-switch-router-gateways/',
       referenceTitle: 'GeeksforGeeks - Network Devices (Hub, Switch, Router & Gateway)',
       referenceSource: 'GeeksforGeeks',
       geeksForGeeksUrl: 'https://www.geeksforgeeks.org/network-devices-hub-switch-router-gateway/',
@@ -411,7 +411,7 @@ export const LABS_PART_1: AcademicExperiment[] = [
       ]
     },
     resources: {
-      referenceUrl: 'https://www.geeksforgeeks.org/ip-addressing/',
+      referenceUrl: 'https://www.geeksforgeeks.org/computer-networks/structure-and-types-of-ip-address/',
       referenceTitle: 'GeeksforGeeks - IP Addressing & Subnetting',
       referenceSource: 'GeeksforGeeks',
       geeksForGeeksUrl: 'https://www.geeksforgeeks.org/ip-addressing/',

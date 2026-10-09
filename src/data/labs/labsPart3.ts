@@ -79,9 +79,9 @@ export const LABS_PART_3: AcademicExperiment[] = [
       ]
     },
     resources: {
-      referenceUrl: 'https://www.geeksforgeeks.org/point-to-point-protocol-ppp/',
-      referenceTitle: 'GeeksforGeeks - Point-to-Point Protocol (PPP)',
-      referenceSource: 'GeeksforGeeks',
+      referenceUrl: 'https://www.rfc-editor.org/info/rfc1661/',
+      referenceTitle: 'RFC 1661: The Point-to-Point Protocol (PPP)',
+      referenceSource: 'RFC Editor',
       geeksForGeeksUrl: 'https://www.geeksforgeeks.org/point-to-point-protocol-ppp/',
       geeksForGeeksTitle: 'GeeksforGeeks PPP Guide',
       youtubeUrl: 'https://www.youtube.com/watch?v=R2j90KkLqWs',
@@ -170,9 +170,9 @@ export const LABS_PART_3: AcademicExperiment[] = [
       ]
     },
     resources: {
-      referenceUrl: 'https://www.geeksforgeeks.org/high-level-data-link-control-hdlc/',
-      referenceTitle: 'GeeksforGeeks - High-Level Data Link Control (HDLC)',
-      referenceSource: 'GeeksforGeeks',
+      referenceUrl: 'https://www.rfc-editor.org/info/rfc1662/',
+      referenceTitle: 'RFC 1662: PPP in HDLC-like Framing',
+      referenceSource: 'RFC Editor',
       geeksForGeeksUrl: 'https://www.geeksforgeeks.org/high-level-data-link-control-hdlc/',
       geeksForGeeksTitle: 'GeeksforGeeks HDLC Guide',
       youtubeUrl: 'https://www.youtube.com/watch?v=6qjD9_o80-E',
@@ -459,7 +459,7 @@ export const LABS_PART_3: AcademicExperiment[] = [
       ]
     },
     resources: {
-      referenceUrl: 'https://www.geeksforgeeks.org/telnet-protocol/',
+      referenceUrl: 'https://www.geeksforgeeks.org/computer-networks/introduction-to-telnet/',
       referenceTitle: 'GeeksforGeeks - Telnet Protocol',
       referenceSource: 'GeeksforGeeks',
       geeksForGeeksUrl: 'https://www.geeksforgeeks.org/telnet-protocol/',

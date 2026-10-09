@@ -5,7 +5,7 @@ export const UNIT_5_DATA: UnitSection = {
   unitNumber: 5,
   title: 'Unit 5: Transport and Application Layer Protocols',
   subtitle: 'Port Numbers, User Datagram Protocol (UDP), Transmission Control Protocol (TCP), WWW & HTTP, FTP, Email, Telnet & DNS',
-  iconName: 'Shield',
+  iconName: 'Globe',
   topics: [
     {
       id: 'u5-t1',
@@ -16,7 +16,7 @@ export const UNIT_5_DATA: UnitSection = {
         '• Well-Known Ports (0 - 1023): HTTP (80), HTTPS (443), DNS (53), DHCP (67/68), Telnet (23), SSH (22), FTP (20/21), SMTP (25).',
         '• Registered Ports (1024 - 49151) and Ephemeral/Dynamic Ports (49152 - 65535).',
         'User Datagram Protocol (UDP - RFC 768): Connectionless, lightweight 8-byte fixed header (Source Port, Dest Port, Length, Checksum). No handshakes, no acknowledgments, no congestion control. Best for real-time multimedia, DNS queries, DHCP, VoIP.',
-        'Transmission Control Protocol (TCP - RFC 793): Connection-oriented, reliable in-order byte stream. 20-60 byte header with Sequence numbers, Acknowledgment numbers, Window size, Checksum, and Flags (SYN, ACK, FIN, RST, PSH, URG).',
+        'Transmission Control Protocol (TCP - RFC 9293): Connection-oriented, reliable in-order byte stream. 20-60 byte header with Sequence numbers, Acknowledgment numbers, Window size, Checksum, and Flags (SYN, ACK, FIN, RST, PSH, URG).',
         'TCP 3-Way Handshake: SYN -> SYN-ACK -> ACK. TCP 4-Way Termination: FIN -> ACK -> FIN -> ACK.'
       ],
       examTips: 'Exam Comparison Table: Tabulate TCP vs UDP on: 1. Connection-mode 2. Reliability & retransmission 3. Header size (20-60B vs 8B) 4. Flow & congestion control 5. Typical protocols.',
@@ -32,8 +32,9 @@ export const UNIT_5_DATA: UnitSection = {
         { q: 'Why do DNS queries utilize UDP port 53 rather than TCP?', a: 'Because DNS queries consist of short single-packet request/response pairs, making UDP much faster without handshake latency.' }
       ],
       references: [
-        { title: 'GeeksforGeeks - TCP vs UDP', url: 'https://www.geeksforgeeks.org/tcp-vs-udp/', type: 'Guide', source: 'GeeksforGeeks' },
-        { title: 'GeeksforGeeks - Telnet Protocol', url: 'https://www.geeksforgeeks.org/telnet-protocol/', type: 'Guide', source: 'GeeksforGeeks' }
+        { title: 'TCP and UDP in Transport Layer', url: 'https://www.geeksforgeeks.org/computer-networks/transport-layer-protocols/', type: 'Guide', source: 'GeeksforGeeks' },
+        { title: 'RFC 9293: Transmission Control Protocol', url: 'https://www.rfc-editor.org/info/rfc9293/', type: 'RFC', source: 'RFC Editor' },
+        { title: 'RFC 854: Telnet Protocol Specification', url: 'https://www.rfc-editor.org/info/rfc854/', type: 'RFC', source: 'RFC Editor' }
       ]
     },
     {
@@ -41,11 +42,11 @@ export const UNIT_5_DATA: UnitSection = {
       title: 'World Wide Web (WWW) & HyperText Transfer Protocol (HTTP)',
       description: 'Web client-server architecture, methods, persistent connections, and TLS security.',
       keyPoints: [
-        'HTTP Evolution (RFC 2616 / RFC 7540):',
+        'HTTP Evolution (RFC 9110 / RFC 9113 / RFC 9114):',
         '• HTTP/1.0: Non-persistent (new TCP handshake per object, high RTT latency).',
         '• HTTP/1.1: Persistent connections by default (`Connection: keep-alive`), allowing multiple objects per connection.',
-        '• HTTP/2: Binary framing, stream multiplexing over a single TCP connection, HPACK header compression.',
-        '• HTTP/3: QUIC protocol over UDP, eliminating head-of-line blocking.',
+        '• HTTP/2: Binary framing, stream multiplexing over one TCP connection, and HPACK header compression (RFC 9113).',
+        '• HTTP/3: Runs over QUIC and avoids TCP-level head-of-line blocking between independent streams (RFC 9114).',
         'Standard Request Methods: GET (Retrieve data), POST (Submit form data), PUT (Upload/replace), DELETE (Remove resource).',
         'Status Codes: 200 OK, 301 Moved Permanently, 400 Bad Request, 401 Unauthorized, 403 Forbidden, 404 Not Found, 500 Internal Server Error, 502 Bad Gateway.',
         'HTTPS (Port 443): Encapsulates HTTP inside TLS/SSL encryption.'
@@ -57,6 +58,11 @@ HTTP/2:   [TCP + TLS]     ──► ═════════[Multiplexed Stre
       vivaQuestions: [
         { q: 'What port numbers are assigned by default to HTTP and HTTPS?', a: 'HTTP uses TCP Port 80; HTTPS uses TCP Port 443.' },
         { q: 'What is the benefit of HTTP/2 stream multiplexing?', a: 'It allows interleaving multiple concurrent requests and responses over a single TCP connection, eliminating head-of-line blocking.' }
+      ],
+      references: [
+        { title: 'RFC 9110: HTTP Semantics', url: 'https://www.rfc-editor.org/info/rfc9110/', type: 'RFC', source: 'RFC Editor' },
+        { title: 'RFC 9113: HTTP/2', url: 'https://www.rfc-editor.org/info/rfc9113/', type: 'RFC', source: 'RFC Editor' },
+        { title: 'RFC 9114: HTTP/3', url: 'https://www.rfc-editor.org/info/rfc9114/', type: 'RFC', source: 'RFC Editor' }
       ]
     },
     {
@@ -82,6 +88,12 @@ HTTP/2:   [TCP + TLS]     ──► ═════════[Multiplexed Stre
       vivaQuestions: [
         { q: 'Which two ports are utilized by File Transfer Protocol (FTP) and for what purpose?', a: 'Port 21 for Control/Signaling commands and Port 20 for actual Data file transfers.' },
         { q: 'What is the difference between POP3 and IMAP for email retrieval?', a: 'POP3 downloads mail locally and removes it from the server, while IMAP synchronizes folders and keeps email stored on the server.' }
+      ],
+      references: [
+        { title: 'RFC 959: File Transfer Protocol', url: 'https://www.rfc-editor.org/info/rfc959/', type: 'RFC', source: 'RFC Editor' },
+        { title: 'RFC 5321: Simple Mail Transfer Protocol', url: 'https://www.rfc-editor.org/info/rfc5321/', type: 'RFC', source: 'RFC Editor' },
+        { title: 'RFC 9051: Internet Message Access Protocol', url: 'https://www.rfc-editor.org/info/rfc9051/', type: 'RFC', source: 'RFC Editor' },
+        { title: 'RFC 1939: Post Office Protocol Version 3', url: 'https://www.rfc-editor.org/info/rfc1939/', type: 'RFC', source: 'RFC Editor' }
       ]
     },
     {
@@ -110,6 +122,10 @@ Router(config-line)# exit`,
       vivaQuestions: [
         { q: 'Why is Telnet considered insecure for remote management across untrusted networks?', a: 'Because Telnet transmits all credentials and commands in clear text, making it vulnerable to packet sniffing.' },
         { q: 'What virtual lines are configured in Cisco IOS to enable Telnet access?', a: 'The VTY (Virtual Teletype) lines, configured via "line vty 0 4".' }
+      ],
+      references: [
+        { title: 'RFC 854: Telnet Protocol Specification', url: 'https://www.rfc-editor.org/info/rfc854/', type: 'RFC', source: 'RFC Editor' },
+        { title: 'RFC 4251: Secure Shell Protocol Architecture', url: 'https://www.rfc-editor.org/info/rfc4251/', type: 'RFC', source: 'RFC Editor' }
       ]
     },
     {
@@ -141,6 +157,11 @@ Router(config-line)# exit`,
       vivaQuestions: [
         { q: 'What is the purpose of an MX record in DNS?', a: 'To designate the mail server responsible for accepting incoming email for a domain.' },
         { q: 'What transport protocol and port are used for standard DNS lookups?', a: 'UDP Port 53.' }
+      ],
+      references: [
+        { title: 'RFC 1034: Domain Names – Concepts and Facilities', url: 'https://www.rfc-editor.org/info/rfc1034/', type: 'RFC', source: 'RFC Editor' },
+        { title: 'RFC 1035: Domain Names – Implementation and Specification', url: 'https://www.rfc-editor.org/info/rfc1035/', type: 'RFC', source: 'RFC Editor' },
+        { title: 'RFC 7766: DNS Transport over TCP', url: 'https://www.rfc-editor.org/info/rfc7766/', type: 'RFC', source: 'RFC Editor' }
       ]
     }
   ]

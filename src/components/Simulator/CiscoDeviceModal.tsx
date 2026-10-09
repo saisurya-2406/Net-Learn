@@ -1327,7 +1327,13 @@ export const CiscoDeviceModal: React.FC<CiscoDeviceModalProps> = ({
                   {/* Browser Viewport */}
                   <div className="flex-1 p-4 bg-white text-slate-900 overflow-y-auto">
                     {renderedWebPage ? (
-                      <div dangerouslySetInnerHTML={{ __html: renderedWebPage }} />
+                      <iframe
+                        title="Simulated server page"
+                        sandbox=""
+                        referrerPolicy="no-referrer"
+                        srcDoc={`<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none';"></head><body>${renderedWebPage}</body></html>`}
+                        className="h-full min-h-64 w-full border-0 bg-white"
+                      />
                     ) : (
                       <div className="text-center text-slate-400 py-12">
                         <Globe className="w-12 h-12 mx-auto mb-2 opacity-50" />

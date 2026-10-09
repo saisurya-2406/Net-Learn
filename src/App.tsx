@@ -10,13 +10,25 @@ import { PacketSimulatorWorkspace } from './components/Simulator/PacketSimulator
 import { LabsAndTroubleshootView } from './components/Labs/LabsAndTroubleshootView';
 import { VisualizerHub } from './components/Visualizers/VisualizerHub';
 import { CalculatorsView } from './components/Calculators/CalculatorsView';
-import { PracticeAndVivaView } from './components/Practice/PracticeAndVivaView';
+import { PracticeQuizView } from './components/Practice/PracticeQuizView';
 import { StudyResourcesView } from './components/Learn/StudyResourcesView';
 import { SyllabusExamGuideView } from './components/Learn/SyllabusExamGuideView';
 import { NetworkDevice, NetworkLink } from './types/network';
 
+const RESOURCE_TAB_MAP = {
+  labs: 'labs',
+  visualizers: 'visualizers',
+  calculators: 'numericals',
+  simulator: 'simulator',
+  quiz: 'practice',
+  syllabus: 'syllabus',
+} as const;
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const [openSavedTopologiesOnSimulator, setOpenSavedTopologiesOnSimulator] = useState(false);
+  const [startBlankNetworkOnSimulator, setStartBlankNetworkOnSimulator] = useState(false);
+  const [selectedLabId, setSelectedLabId] = useState('exp-1');
 
   // Shared topology state between Simulator and Labs
   const [activeDevices, setActiveDevices] = useState<NetworkDevice[]>([]);
@@ -39,13 +51,27 @@ export default function App() {
       {/* Main Content Viewport */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-5">
         {activeTab === 'dashboard' && (
-          <DashboardView onNavigate={(tab) => setActiveTab(tab)} />
+          <DashboardView
+            onNavigate={(tab) => setActiveTab(tab)}
+            onStartBlankNetwork={() => {
+              setStartBlankNetworkOnSimulator(true);
+              setActiveTab('simulator');
+            }}
+            onOpenSavedTopologies={() => {
+              setOpenSavedTopologiesOnSimulator(true);
+              setActiveTab('simulator');
+            }}
+          />
         )}
 
         {activeTab === 'simulator' && (
           <PacketSimulatorWorkspace
             initialDevices={activeDevices}
             initialLinks={activeLinks}
+            startBlankTopologyOnMount={startBlankNetworkOnSimulator}
+            onBlankTopologyStarted={() => setStartBlankNetworkOnSimulator(false)}
+            openSavedTopologiesOnMount={openSavedTopologiesOnSimulator}
+            onSavedTopologiesOpened={() => setOpenSavedTopologiesOnSimulator(false)}
           />
         )}
 
@@ -55,6 +81,7 @@ export default function App() {
             onNavigateToSimulator={() => setActiveTab('simulator')}
             currentDevices={activeDevices}
             currentLinks={activeLinks}
+            initialExperimentId={selectedLabId}
           />
         )}
 
@@ -62,6 +89,10 @@ export default function App() {
           <SyllabusExamGuideView
             onNavigateToTab={(tab) => setActiveTab(tab)}
             onLoadTopology={handleLoadTopologyFromLab}
+            onOpenLab={(experimentId) => {
+              setSelectedLabId(experimentId);
+              setActiveTab('labs');
+            }}
           />
         )}
 
@@ -74,11 +105,11 @@ export default function App() {
         )}
 
         {activeTab === 'practice' && (
-          <PracticeAndVivaView />
+          <PracticeQuizView />
         )}
 
         {activeTab === 'resources' && (
-          <StudyResourcesView />
+          <StudyResourcesView onOpenSection={(section) => setActiveTab(RESOURCE_TAB_MAP[section])} />
         )}
       </main>
 
@@ -107,7 +138,7 @@ export default function App() {
               onClick={() => setActiveTab('resources')}
               className="hover:text-slate-300 transition-colors"
             >
-              Tutorials & Docs
+              Resource Hub
             </button>
           </div>
         </div>

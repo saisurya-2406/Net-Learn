@@ -88,7 +88,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
             </div>
             <span className="text-[9px] font-mono tracking-widest uppercase text-slate-400 font-semibold mt-1 flex items-center gap-1.5">
-              <span>Packet Tracer</span>
+              <span>NetLearn Simulator</span>
               <span className="text-slate-600">•</span>
               <span className="text-sky-400">5-Unit Syllabus</span>
               <span className="text-slate-600">•</span>
@@ -114,7 +114,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             activeTab === 'simulator' ? 'text-sky-400 border-b-2 border-sky-400' : 'text-slate-400'
           }`}
         >
-          Packet Tracer Workspace
+          Network Simulator
         </button>
         <button
           onClick={() => setActiveTab('labs')}
@@ -155,7 +155,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             activeTab === 'practice' ? 'text-sky-400 border-b-2 border-sky-400' : 'text-slate-400'
           }`}
         >
-          Practice Examination
+          Practice & Viva
         </button>
         <button
           onClick={() => setActiveTab('resources')}
@@ -163,7 +163,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             activeTab === 'resources' ? 'text-sky-400 border-b-2 border-sky-400' : 'text-slate-400'
           }`}
         >
-          Tutorials & Docs
+          Resource Hub
         </button>
       </nav>
 
