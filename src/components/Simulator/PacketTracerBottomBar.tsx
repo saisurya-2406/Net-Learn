@@ -443,6 +443,11 @@ export const PacketTracerBottomBar: React.FC<PacketTracerBottomBarProps> = ({
               </button>
 
               {/* Console Cable (Light blue wire) */}
+              <button onClick={() => onSelectCableType(selectedCableType === 'wireless' ? null : 'wireless')} className={`flex flex-col items-center justify-center p-2 rounded-lg border text-center w-24 shrink-0 transition-all ${selectedCableType === 'wireless' ? 'bg-violet-950 border-violet-400 text-violet-300 shadow-md ring-1 ring-violet-400' : 'bg-slate-950 border-slate-800 hover:border-violet-500 text-slate-300'}`}>
+                <div className="w-8 h-1 border-t-2 border-dashed border-violet-400 my-2.5" /><span className="font-bold text-[10px] leading-tight">Wireless</span><span className="text-[8px] text-slate-500">AP to Wi-Fi client</span>
+              </button>
+
+              {/* Console Cable (Light blue wire) */}
               <button
                 onClick={() => onSelectCableType(selectedCableType === 'console' ? null : 'console')}
                 className={`flex flex-col items-center justify-center p-2 rounded-lg border text-center w-24 shrink-0 transition-all group ${

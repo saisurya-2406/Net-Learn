@@ -20,11 +20,18 @@ export type CableType =
   | 'crossover' 
   | 'fiber' 
   | 'serial'
-  | 'console';
+  | 'console'
+  | 'wireless';
+
+export type SimulationProtocol =
+  | 'ICMP' | 'ICMPv6' | 'ARP' | 'HTTP' | 'FTP' | 'TFTP' | 'SMTP' | 'POP3' | 'DNS'
+  | 'DHCP' | 'NTP' | 'SNMP' | 'TELNET' | 'SSH' | 'AAA' | 'RTP' | 'TCP' | 'UDP'
+  | 'RIP' | 'OSPF' | 'EIGRP' | 'BGP';
 
 export interface NetworkInterface {
   id: string;
   name: string; // e.g. 'FastEthernet0', 'FastEthernet0/1', 'GigabitEthernet0/0', 'Serial0/0/0', 'Console'
+  description?: string;
   ip?: string;
   subnetMask?: string;
   ipv6?: string;
@@ -32,11 +39,21 @@ export interface NetworkInterface {
   mac: string;
   status: 'up' | 'down';
   vlan?: number; // default 1
-  mode?: 'access' | 'trunk';
+  mode?: 'access' | 'trunk' | 'dynamic-auto' | 'dynamic-desirable';
+  allowedVlans?: number[];
+  aclInbound?: string;
+  aclOutbound?: string;
+  natRole?: 'inside' | 'outside';
   duplex?: 'auto' | 'full' | 'half';
   speed?: 'auto' | '10' | '100' | '1000';
   isConsole?: boolean;
   clockRate?: number; // for Serial DCE interfaces e.g. 64000
+  encapsulation?: 'hdlc' | 'ppp' | 'pppoe' | 'frame-relay';
+  frameRelayDlci?: number;
+  qos?: { priority: 'low' | 'normal' | 'high' | 'voice'; dscp?: number };
+  channelGroup?: number;
+  channelProtocol?: 'lacp' | 'pagp';
+  pppAuthentication?: 'chap' | 'pap';
 }
 
 export type RouteProtocolType = 'C' | 'S' | 'S*' | 'R' | 'O' | 'D' | 'B';
@@ -57,6 +74,18 @@ export interface Ipv6RouteEntry {
   prefix: string; // e.g. '2001:db8:2::/64'
   nextHop: string;
   interfaceName: string;
+  protocol?: 'Static' | 'RIPng';
+  metric?: number;
+}
+
+export interface AccessListRule {
+  id: string;
+  number: string;
+  action: 'permit' | 'deny';
+  protocol: 'ip' | 'tcp' | 'udp' | 'icmp';
+  source: string;
+  destination: string;
+  destinationPort?: number;
 }
 
 export interface MacTableEntry {
@@ -64,6 +93,12 @@ export interface MacTableEntry {
   port: string;
   vlan: number;
   type: 'DYNAMIC' | 'STATIC';
+}
+
+export interface VlanConfig {
+  id: number;
+  name: string;
+  status: 'active' | 'suspended';
 }
 
 export interface DnsRecord {
@@ -94,6 +129,8 @@ export interface ServerServices {
     maxUsers?: number;
   };
   dhcpLeases?: DhcpLease[];
+  snmp?: { enabled: boolean; version: 'v2c' | 'v3'; community: string };
+  aaa?: { enabled: boolean; protocol: 'radius' | 'tacacs+'; users: Array<{ username: string; password: string; privilege: 1 | 15 }> };
 }
 
 export interface NetworkDevice {
@@ -106,15 +143,22 @@ export interface NetworkDevice {
   powerState: 'on' | 'off';
   interfaces: NetworkInterface[];
   defaultGateway?: string;
+  defaultGatewayV6?: string;
   dnsServer?: string;
   routingTable?: RouteEntry[];
   ipv6Routes?: Ipv6RouteEntry[];
   macTable?: MacTableEntry[];
+  vlans?: VlanConfig[];
+  vtpConfig?: { mode: 'server' | 'client' | 'transparent'; domain: string; version: 1 | 2 | 3 };
   arpCache?: { [ip: string]: string }; // IP -> MAC
   serverServices?: ServerServices;
   configMode?: 'static' | 'dhcp';
   cliHistory?: string[];
+  startupConfig?: string;
   notes?: string;
+  enableSecret?: string;
+  localUsers?: Array<{ username: string; password: string }>;
+  lineConfig?: { console?: { password?: string; login?: boolean }; vty?: { start: number; end: number; password?: string; login?: boolean; transport?: 'telnet' | 'ssh' | 'all' } };
   
   // Routing Protocol Configurations
   ripConfig?: {
@@ -127,6 +171,8 @@ export interface NetworkDevice {
     enabled: boolean;
     processId: number;
     networks: { network: string; wildcard: string; area: number }[];
+    redistributeStatic?: boolean;
+    redistributeConnected?: boolean;
   };
   eigrpConfig?: {
     enabled: boolean;
@@ -140,7 +186,14 @@ export interface NetworkDevice {
     neighbors: { ip: string; remoteAs: number }[];
     networks: string[];
   };
+  ripngConfig?: { enabled: boolean; processName: string; interfaces: string[] };
   ipv6RoutingEnabled?: boolean;
+  spanningTreeMode?: 'pvst' | 'rapid-pvst' | 'off';
+  cdpEnabled?: boolean;
+  accessLists?: AccessListRule[];
+  natOverload?: { aclNumber: string; outsideInterface: string };
+  wirelessConfig?: { ssid: string; security: 'open' | 'wpa2-psk' | 'wpa3-sae'; passphrase?: string };
+  firewallConfig?: { enabled: boolean; defaultAction: 'allow' | 'deny'; rules: Array<{ action: 'allow' | 'deny'; protocol: 'any' | 'tcp' | 'udp' | 'icmp'; destinationPort?: number }> };
 }
 
 export interface NetworkLink {
@@ -209,7 +262,7 @@ export interface SimulationStep {
   fromDeviceId: string;
   toDeviceId: string;
   linkId: string;
-  protocol: 'ICMP' | 'ARP' | 'HTTP' | 'DNS' | 'DHCP' | 'RIP' | 'OSPF' | 'EIGRP' | 'BGP' | 'TCP';
+  protocol: SimulationProtocol;
   packetName: string;
   headers: PacketHeaders;
   explanation: {

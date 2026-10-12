@@ -1,9 +1,9 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   Monitor, Laptop, Shuffle, Compass, Server, Radio, Shield, Box,
   Trash2, Settings, Terminal, Cable, ZoomIn, ZoomOut, RotateCcw, Copy,
   FileText, MousePointer, X, Check, MapPin, Building, Server as ServerIcon, Mail,
-  Printer, Phone
+  Printer, Phone, LayoutGrid, Maximize2, Undo2, Redo2
 } from 'lucide-react';
 import { NetworkDevice, NetworkLink, SimulationStep, DeviceType, CableType } from '../../types/network';
 
@@ -52,8 +52,82 @@ export const NetworkCanvas: React.FC<NetworkCanvasProps> = ({
   // Dragging State
   const [draggingDeviceId, setDraggingDeviceId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const spaceHeld = useRef(false);
+  const panStart = useRef({ x: 0, y: 0, originX: 0, originY: 0 });
+  const undoStack = useRef<Array<{ devices: NetworkDevice[]; links: NetworkLink[] }>>([]);
+  const redoStack = useRef<Array<{ devices: NetworkDevice[]; links: NetworkLink[] }>>([]);
+  const [, setHistoryRevision] = useState(0);
 
   const canvasRef = useRef<HTMLDivElement>(null);
+
+  const rememberChange = () => {
+    undoStack.current.push({ devices, links });
+    if (undoStack.current.length > 100) undoStack.current.shift();
+    redoStack.current = [];
+    setHistoryRevision(value => value + 1);
+  };
+  const undo = () => {
+    const previous = undoStack.current.pop();
+    if (!previous) return;
+    redoStack.current.push({ devices, links });
+    onUpdateDevices(previous.devices);
+    onUpdateLinks(previous.links);
+    setHistoryRevision(value => value + 1);
+  };
+  const redo = () => {
+    const next = redoStack.current.pop();
+    if (!next) return;
+    undoStack.current.push({ devices, links });
+    onUpdateDevices(next.devices);
+    onUpdateLinks(next.links);
+    setHistoryRevision(value => value + 1);
+  };
+  const duplicateSelected = () => {
+    const original = devices.find(device => device.id === selectedDeviceId);
+    if (!original) return;
+    rememberChange();
+    const stamp = Date.now();
+    const duplicate: NetworkDevice = {
+      ...original,
+      id: `${original.id}-copy-${stamp}`,
+      name: `${original.name} Copy`,
+      x: original.x + 36,
+      y: original.y + 36,
+      interfaces: original.interfaces.map((iface, index) => ({
+        ...iface,
+        id: `${iface.id}-copy-${stamp}`,
+        mac: `02:00:${((stamp >>> 16) & 255).toString(16).padStart(2, '0')}:${((stamp >>> 8) & 255).toString(16).padStart(2, '0')}:${(stamp & 255).toString(16).padStart(2, '0')}:${index.toString(16).padStart(2, '0')}`,
+      })),
+      routingTable: original.routingTable?.map(route => ({ ...route, id: `${route.id}-copy-${stamp}` })),
+      macTable: [], arpCache: {},
+    };
+    onUpdateDevices([...devices, duplicate]);
+    onSelectDevice(duplicate.id);
+  };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.matches('input, textarea, select, [contenteditable="true"]')) return;
+      if (event.code === 'Space') { spaceHeld.current = true; event.preventDefault(); return; }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) redo(); else undo();
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'y') {
+        event.preventDefault(); redo();
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') {
+        event.preventDefault(); duplicateSelected();
+      } else if ((event.key === 'Delete' || event.key === 'Backspace') && selectedDeviceId) {
+        event.preventDefault(); handleDeleteDevice(selectedDeviceId);
+      }
+    };
+    const onKeyUp = (event: KeyboardEvent) => { if (event.code === 'Space') spaceHeld.current = false; };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); };
+  });
 
   // Device Icons Map
   const getDeviceIcon = (type: DeviceType) => {
@@ -96,21 +170,32 @@ export const NetworkCanvas: React.FC<NetworkCanvasProps> = ({
   const handleMouseDownDevice = (e: React.MouseEvent, dev: NetworkDevice) => {
     if (selectedCableType || activeTool === 'delete') return;
     e.stopPropagation();
+    if (spaceHeld.current) {
+      panStart.current = { x: e.clientX, y: e.clientY, originX: panOffset.x, originY: panOffset.y };
+      setIsPanning(true);
+      return;
+    }
+    rememberChange();
     onSelectDevice(dev.id);
     setDraggingDeviceId(dev.id);
+    const bounds = canvasRef.current?.getBoundingClientRect();
     setDragOffset({
-      x: e.clientX - dev.x,
-      y: e.clientY - dev.y,
+      x: (e.clientX - (bounds?.left || 0)) / zoomLevel - dev.x,
+      y: (e.clientY - (bounds?.top || 0)) / zoomLevel - dev.y,
     });
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    if (isPanning) {
+      setPanOffset({ x: panStart.current.originX + e.clientX - panStart.current.x, y: panStart.current.originY + e.clientY - panStart.current.y });
+      return;
+    }
     if (!draggingDeviceId) return;
     const canvasBounds = canvasRef.current?.getBoundingClientRect();
     if (!canvasBounds) return;
 
-    const newX = Math.max(20, Math.min(canvasBounds.width - 80, e.clientX - dragOffset.x));
-    const newY = Math.max(20, Math.min(canvasBounds.height - 80, e.clientY - dragOffset.y));
+    const newX = Math.max(20, Math.min(canvasBounds.width / zoomLevel - 80, (e.clientX - canvasBounds.left) / zoomLevel - dragOffset.x));
+    const newY = Math.max(20, Math.min(canvasBounds.height / zoomLevel - 80, (e.clientY - canvasBounds.top) / zoomLevel - dragOffset.y));
 
     onUpdateDevices(
       devices.map((d) => (d.id === draggingDeviceId ? { ...d, x: newX, y: newY } : d))
@@ -119,6 +204,7 @@ export const NetworkCanvas: React.FC<NetworkCanvasProps> = ({
 
   const handleMouseUp = () => {
     setDraggingDeviceId(null);
+    setIsPanning(false);
   };
 
   // Port Selection Confirmation (Port Selected for Cable)
@@ -150,6 +236,7 @@ export const NetworkCanvas: React.FC<NetworkCanvasProps> = ({
         status: 'up',
       };
 
+      rememberChange();
       onUpdateLinks([...links, newLink]);
       setPendingCableSource(null);
       onClearCableType();
@@ -157,12 +244,14 @@ export const NetworkCanvas: React.FC<NetworkCanvasProps> = ({
   };
 
   const handleDeleteDevice = (id: string) => {
+    rememberChange();
     onUpdateDevices(devices.filter((d) => d.id !== id));
     onUpdateLinks(links.filter((l) => l.sourceDeviceId !== id && l.targetDeviceId !== id));
     if (selectedDeviceId === id) onSelectDevice(null);
   };
 
   const handleDeleteLink = (linkId: string) => {
+    rememberChange();
     onUpdateLinks(links.filter((l) => l.id !== linkId));
   };
 
@@ -240,6 +329,13 @@ export const NetworkCanvas: React.FC<NetworkCanvasProps> = ({
             <X className="w-4 h-4" />
           </button>
 
+          <button onClick={undo} disabled={!undoStack.current.length} className="p-1.5 text-slate-400 hover:text-white disabled:opacity-30 rounded hover:bg-slate-800" title="Undo (Ctrl+Z)" aria-label="Undo">
+            <Undo2 className="w-4 h-4" />
+          </button>
+          <button onClick={redo} disabled={!redoStack.current.length} className="p-1.5 text-slate-400 hover:text-white disabled:opacity-30 rounded hover:bg-slate-800" title="Redo (Ctrl+Y)" aria-label="Redo">
+            <Redo2 className="w-4 h-4" />
+          </button>
+
           <div className="h-4 w-px bg-slate-800" />
 
           {/* Toggle Port Labels */}
@@ -273,11 +369,48 @@ export const NetworkCanvas: React.FC<NetworkCanvasProps> = ({
             <ZoomOut className="w-4 h-4" />
           </button>
           <button
-            onClick={() => setZoomLevel(1)}
+            onClick={() => { setZoomLevel(1); setPanOffset({ x: 0, y: 0 }); }}
             className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800"
             title="Reset Zoom"
           >
             <RotateCcw className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => {
+              if (!devices.length || !canvasRef.current) return;
+              rememberChange();
+              const columns = Math.max(1, Math.ceil(Math.sqrt(devices.length)));
+              const spacingX = Math.max(150, Math.min(230, (canvasRef.current.clientWidth - 120) / columns));
+              const spacingY = 150;
+              onUpdateDevices(devices.map((device, index) => ({ ...device, x: 50 + (index % columns) * spacingX, y: 50 + Math.floor(index / columns) * spacingY })));
+            }}
+            className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800"
+            title="Arrange devices in a grid"
+            aria-label="Arrange devices"
+          >
+            <LayoutGrid className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => {
+              if (!devices.length || !canvasRef.current) { setZoomLevel(1); setPanOffset({ x: 0, y: 0 }); return; }
+              const width = canvasRef.current.clientWidth;
+              const height = canvasRef.current.clientHeight;
+              const minX = Math.min(...devices.map(device => device.x));
+              const minY = Math.min(...devices.map(device => device.y));
+              const maxX = Math.max(...devices.map(device => device.x + 120));
+              const maxY = Math.max(...devices.map(device => device.y + 100));
+              const nextZoom = Math.max(0.4, Math.min(1.5, Math.min((width - 48) / Math.max(1, maxX - minX), (height - 48) / Math.max(1, maxY - minY))));
+              setZoomLevel(nextZoom);
+              setPanOffset({
+                x: (width - (maxX - minX) * nextZoom) / 2 - minX * nextZoom,
+                y: (height - (maxY - minY) * nextZoom) / 2 - minY * nextZoom,
+              });
+            }}
+            className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800"
+            title="Fit topology to workspace"
+            aria-label="Fit topology"
+          >
+            <Maximize2 className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -355,13 +488,34 @@ export const NetworkCanvas: React.FC<NetworkCanvasProps> = ({
         /* Logical Workspace Canvas Surface */
         <div
           ref={canvasRef}
+          onWheel={(event) => {
+            event.preventDefault();
+            const bounds = canvasRef.current?.getBoundingClientRect();
+            if (!bounds) return;
+            const nextZoom = Math.max(0.4, Math.min(1.8, zoomLevel * (event.deltaY < 0 ? 1.1 : 0.9)));
+            const anchorX = (event.clientX - bounds.left) / zoomLevel;
+            const anchorY = (event.clientY - bounds.top) / zoomLevel;
+            const baseLeft = bounds.left - panOffset.x;
+            const baseTop = bounds.top - panOffset.y;
+            setZoomLevel(nextZoom);
+            setPanOffset({
+              x: event.clientX - baseLeft - anchorX * nextZoom,
+              y: event.clientY - baseTop - anchorY * nextZoom,
+            });
+          }}
+          onMouseDown={(event) => {
+            if (!spaceHeld.current) return;
+            event.preventDefault();
+            panStart.current = { x: event.clientX, y: event.clientY, originX: panOffset.x, originY: panOffset.y };
+            setIsPanning(true);
+          }}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onClick={() => onSelectDevice(null)}
           className={`w-full h-full min-h-[520px] relative select-none bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:24px_24px] overflow-hidden ${
             activeTool === 'delete' ? 'cursor-not-allowed' : selectedCableType ? 'cursor-crosshair' : 'cursor-default'
           }`}
-          style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'top left' }}
+          style={{ transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoomLevel})`, transformOrigin: 'top left', cursor: isPanning ? 'grabbing' : undefined }}
         >
           {devices.length === 0 && (
             <div className="absolute inset-0 z-[1] flex items-center justify-center p-6 pointer-events-none">
@@ -412,12 +566,14 @@ export const NetworkCanvas: React.FC<NetworkCanvasProps> = ({
               const isFiber = link.cableType === 'fiber';
               const isSerial = link.cableType === 'serial';
               const isConsole = link.cableType === 'console';
+              const isWireless = link.cableType === 'wireless';
 
               let cableStroke = '#334155';
               if (isLinkActive) cableStroke = '#38bdf8';
               else if (isFiber) cableStroke = '#f97316';
               else if (isSerial) cableStroke = '#ef4444';
               else if (isConsole) cableStroke = '#06b6d4';
+              else if (isWireless) cableStroke = '#a78bfa';
               else if (link.status === 'down') cableStroke = '#ef4444';
 
               // Cisco Packet Tracer Link Lights: Green / Amber / Red Triangles pointing to ports
@@ -495,7 +651,7 @@ export const NetworkCanvas: React.FC<NetworkCanvasProps> = ({
                       y2={y2}
                       stroke={cableStroke}
                       strokeWidth={isLinkActive ? 3.5 : 2.5}
-                      strokeDasharray={isCrossover ? '6 4' : ''}
+                      strokeDasharray={isCrossover || isWireless ? '6 4' : ''}
                     />
                   )}
 

@@ -1,7 +1,7 @@
-import React from 'react';
-import { PlayCircle, BookOpen, ExternalLink, Activity, Layers } from 'lucide-react';
+import React, { useState } from 'react';
+import { BookOpen, FlaskConical, Home, Layers3, Menu, Network, PlayCircle, Search, Sparkles, X } from 'lucide-react';
 
-export type ActiveTab = 
+export type ActiveTab =
   | 'dashboard'
   | 'simulator'
   | 'labs'
@@ -17,167 +17,72 @@ interface NavbarProps {
   onOpenQuickLab: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({
-  activeTab,
-  setActiveTab,
-  onOpenQuickLab,
-}) => {
+const navigation: Array<{ id: ActiveTab; label: string; Icon: typeof Home }> = [
+  { id: 'dashboard', label: 'Home', Icon: Home },
+  { id: 'simulator', label: 'Simulator', Icon: Network },
+  { id: 'labs', label: 'Labs', Icon: FlaskConical },
+  { id: 'syllabus', label: 'Syllabus', Icon: BookOpen },
+  { id: 'visualizers', label: 'Visualizers', Icon: Layers3 },
+  { id: 'numericals', label: 'Calculators', Icon: Search },
+  { id: 'practice', label: 'Practice', Icon: Sparkles },
+  { id: 'resources', label: 'Resources', Icon: BookOpen },
+];
+
+export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenQuickLab }) => {
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const navigate = (tab: ActiveTab) => {
+    setActiveTab(tab);
+    setMobileOpen(false);
+  };
+
   return (
-    <header className="sticky top-0 z-40 flex items-center justify-between px-6 py-3 bg-slate-950/95 backdrop-blur-md border-b border-slate-800 select-none">
-      
-      {/* Zone 1: Branding - Ultra-Modern Cybernetic Router Emblem & Identity */}
-      <div className="flex items-center gap-3">
-        <button 
-          onClick={() => setActiveTab('dashboard')} 
-          className="group flex items-center gap-3 text-left transition-all relative"
-        >
-          {/* Cybernetic Hexa-Core Router Dynamic Hologram Logo */}
-          <div className="relative w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-500 via-blue-600 to-indigo-500 p-[2px] shadow-[0_0_20px_rgba(6,182,212,0.4)] group-hover:shadow-[0_0_30px_rgba(6,182,212,0.7)] group-hover:scale-105 transition-all duration-300">
-            <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center relative overflow-hidden">
-              {/* Radial glow background */}
-              <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-cyan-500/25 via-indigo-500/10 to-transparent group-hover:opacity-100 transition-opacity" />
-              
-              {/* Futuristic Cisco-Inspired 4-Way Routing Vector Emblem */}
-              <svg className="w-5 h-5 relative z-10 transition-transform duration-500 group-hover:rotate-45" viewBox="0 0 24 24" fill="none">
-                {/* Hexagon Shield Frame */}
-                <polygon 
-                  points="12,2 20.5,6.9 20.5,17.1 12,22 3.5,17.1 3.5,6.9" 
-                  stroke="url(#hexGradient)" 
-                  strokeWidth="1.5" 
-                  strokeDasharray="2 1.5"
-                  className="opacity-70 group-hover:opacity-100 transition-opacity"
-                />
-
-                {/* 4-Way Routing Vector Arrows (Inward & Outward Route Paths) */}
-                {/* North arrow */}
-                <path d="M12 9V5M12 5L10 7M12 5L14 7" stroke="#38bdf8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                {/* South arrow */}
-                <path d="M12 15V19M12 19L10 17M12 19L14 17" stroke="#38bdf8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                {/* West arrow (inward) */}
-                <path d="M5 12H9M9 12L7 10M9 12L7 14" stroke="#34d399" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                {/* East arrow (outward) */}
-                <path d="M15 12H19M19 12L17 10M19 12L17 14" stroke="#a78bfa" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-
-                {/* Core Router Nexus Node */}
-                <circle cx="12" cy="12" r="2.2" fill="#06b6d4" className="animate-pulse" />
-                <circle cx="12" cy="12" r="4" stroke="#38bdf8" strokeWidth="0.75" strokeOpacity="0.6" />
-
-                {/* Gradient Defs */}
-                <defs>
-                  <linearGradient id="hexGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#06b6d4" />
-                    <stop offset="50%" stopColor="#6366f1" />
-                    <stop offset="100%" stopColor="#10b981" />
-                  </linearGradient>
-                </defs>
-              </svg>
-            </div>
-          </div>
-
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2 leading-none">
-              <span className="font-extrabold text-base tracking-tight text-white font-mono flex items-center">
-                NET<span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-sky-300 to-indigo-400">LEARN</span>
-              </span>
-              <span className="px-1.5 py-0.5 rounded text-[8px] font-mono font-bold uppercase tracking-wider bg-cyan-950/80 text-cyan-400 border border-cyan-500/30">
-                PRO 4.0
-              </span>
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-              </span>
-            </div>
-            <span className="text-[9px] font-mono tracking-widest uppercase text-slate-400 font-semibold mt-1 flex items-center gap-1.5">
-              <span>NetLearn Simulator</span>
-              <span className="text-slate-600">•</span>
-              <span className="text-sky-400">5-Unit Syllabus</span>
-              <span className="text-slate-600">•</span>
-              <span className="text-emerald-400">15 Labs</span>
-            </span>
-          </div>
+    <header className="sticky top-0 z-40 border-b border-slate-800/90 bg-slate-950/95 shadow-[0_8px_28px_rgba(2,6,23,.2)] backdrop-blur-xl">
+      <div className="mx-auto flex min-h-16 max-w-[1600px] items-center justify-between gap-3 px-4 sm:px-6">
+        <button onClick={() => navigate('dashboard')} className="group flex min-w-0 items-center gap-2.5 text-left" aria-label="NetLearn home">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-sky-400/25 bg-sky-400/10 text-sky-300 transition-colors group-hover:bg-sky-400/15">
+            <Network className="h-[18px] w-[18px]" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[15px] font-bold leading-tight tracking-tight text-white">NetLearn</span>
+            <span className="mt-0.5 hidden text-[10px] leading-tight tracking-wide text-slate-500 sm:block">Computer networks learning lab</span>
+          </span>
         </button>
+
+        <nav aria-label="Main navigation" className="hidden items-center gap-0.5 xl:flex">
+          {navigation.map(({ id, label }) => (
+            <button key={id} onClick={() => navigate(id)} aria-current={activeTab === id ? 'page' : undefined}
+              className={`rounded-lg px-2.5 py-2 text-[11px] font-medium transition-colors 2xl:px-3 2xl:text-xs ${activeTab === id ? 'bg-sky-400/10 text-sky-200' : 'text-slate-400 hover:bg-slate-800/70 hover:text-white'}`}>
+              {label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="flex shrink-0 items-center gap-2">
+          <button onClick={onOpenQuickLab} className="hidden rounded-lg border border-slate-700 px-3 py-2 text-xs font-medium text-slate-300 transition-colors hover:border-slate-600 hover:bg-slate-900 hover:text-white sm:inline-flex">
+            Quick lab
+          </button>
+          <button onClick={() => navigate('simulator')} className="inline-flex items-center gap-2 rounded-lg bg-sky-500 px-3 py-2 text-xs font-semibold text-white shadow-sm shadow-sky-950/50 transition-colors hover:bg-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-300 focus:ring-offset-2 focus:ring-offset-slate-950">
+            <PlayCircle className="h-4 w-4" /><span className="hidden sm:inline">Open simulator</span><span className="sm:hidden">Build</span>
+          </button>
+          <button onClick={() => setMobileOpen(open => !open)} aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileOpen}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 xl:hidden">
+            {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+          </button>
+        </div>
       </div>
 
-      {/* Zone 2: Navigation Links */}
-      <nav className="hidden lg:flex items-center gap-5 text-xs font-semibold">
-        <button
-          onClick={() => setActiveTab('dashboard')}
-          className={`transition-colors py-1 hover:text-white ${
-            activeTab === 'dashboard' ? 'text-sky-400 border-b-2 border-sky-400' : 'text-slate-400'
-          }`}
-        >
-          Home / Dashboard
-        </button>
-        <button
-          onClick={() => setActiveTab('simulator')}
-          className={`transition-colors py-1 hover:text-white ${
-            activeTab === 'simulator' ? 'text-sky-400 border-b-2 border-sky-400' : 'text-slate-400'
-          }`}
-        >
-          Network Simulator
-        </button>
-        <button
-          onClick={() => setActiveTab('labs')}
-          className={`transition-colors py-1 hover:text-white ${
-            activeTab === 'labs' ? 'text-sky-400 border-b-2 border-sky-400' : 'text-slate-400'
-          }`}
-        >
-          15 Lab Experiments
-        </button>
-        <button
-          onClick={() => setActiveTab('syllabus')}
-          className={`transition-colors py-1 hover:text-white flex items-center gap-1.5 ${
-            activeTab === 'syllabus' ? 'text-sky-400 border-b-2 border-sky-400' : 'text-slate-400'
-          }`}
-        >
-          <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded text-[10px] font-bold">5 Units</span>
-          <span>Syllabus Guide</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('visualizers')}
-          className={`transition-colors py-1 hover:text-white ${
-            activeTab === 'visualizers' ? 'text-sky-400 border-b-2 border-sky-400' : 'text-slate-400'
-          }`}
-        >
-          Protocol Visualizers
-        </button>
-        <button
-          onClick={() => setActiveTab('numericals')}
-          className={`transition-colors py-1 hover:text-white ${
-            activeTab === 'numericals' ? 'text-sky-400 border-b-2 border-sky-400' : 'text-slate-400'
-          }`}
-        >
-          Subnetting Calculators
-        </button>
-        <button
-          onClick={() => setActiveTab('practice')}
-          className={`transition-colors py-1 hover:text-white ${
-            activeTab === 'practice' ? 'text-sky-400 border-b-2 border-sky-400' : 'text-slate-400'
-          }`}
-        >
-          Practice & Viva
-        </button>
-        <button
-          onClick={() => setActiveTab('resources')}
-          className={`transition-colors py-1 hover:text-white ${
-            activeTab === 'resources' ? 'text-sky-400 border-b-2 border-sky-400' : 'text-slate-400'
-          }`}
-        >
-          Resource Hub
-        </button>
-      </nav>
-
-      {/* Zone 3: Quick Action Buttons */}
-      <div className="flex items-center gap-2.5">
-        <button
-          onClick={() => setActiveTab('simulator')}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-sky-600 rounded-lg hover:bg-sky-500 shadow-sm shadow-sky-600/30 transition-all whitespace-nowrap"
-        >
-          <PlayCircle className="w-3.5 h-3.5" />
-          <span>Simulator</span>
-        </button>
-      </div>
-
+      {mobileOpen && (
+        <nav aria-label="Mobile navigation" className="border-t border-slate-800 bg-slate-950 px-4 py-3 xl:hidden sm:px-6">
+          <div className="mx-auto grid max-w-[1600px] grid-cols-2 gap-1.5 sm:grid-cols-4">
+            {navigation.map(({ id, label, Icon }) => (
+              <button key={id} onClick={() => navigate(id)} aria-current={activeTab === id ? 'page' : undefined}
+                className={`flex items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-medium transition-colors ${activeTab === id ? 'bg-sky-400/10 text-sky-200' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
+                <Icon className="h-4 w-4 shrink-0" />{label}
+              </button>
+            ))}
+          </div>
+        </nav>
+      )}
     </header>
   );
 };

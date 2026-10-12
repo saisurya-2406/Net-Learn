@@ -75,7 +75,11 @@ export const LABS_PART_2: AcademicExperiment[] = [
       description: 'Check that NAT overload is configured and translations can be processed.',
       isPassed: (devices) => {
         const r0 = devices.find(d => d.name === 'NAT-Gateway');
-        return !!(r0 && r0.interfaces.some(i => i.ip === '203.0.113.1'));
+        if (!r0?.natOverload) return false;
+        const inside = r0.interfaces.some(i => i.natRole === 'inside');
+        const outside = r0.interfaces.some(i => i.name === r0.natOverload?.outsideInterface && i.natRole === 'outside');
+        const acl = r0.accessLists?.some(rule => rule.number === r0.natOverload?.aclNumber && rule.action === 'permit');
+        return inside && outside && !!acl;
       },
       hint: 'Configure NAT inside/outside on interfaces and create NAT overload statement.'
     },
@@ -196,7 +200,7 @@ export const LABS_PART_2: AcademicExperiment[] = [
       description: 'Check that RIP routes (type R) are present in the routing table.',
       isPassed: (devices) => {
         const r1 = devices.find(d => d.name === 'Router1');
-        return !!(r1 && r1.routingTable && r1.routingTable.some(r => r.type === 'R'));
+        return !!(r1?.ripConfig?.enabled && r1.ripConfig.version === 1 && r1.routingTable?.some(r => r.type === 'R'));
       },
       hint: 'Configure "router rip" and network statements on Router1 and Router2.'
     },
@@ -318,7 +322,7 @@ export const LABS_PART_2: AcademicExperiment[] = [
       description: 'Check that RIPv2 preserves VLSM subnets in the routing table.',
       isPassed: (devices) => {
         const r1 = devices.find(d => d.name === 'Router1');
-        return !!(r1 && r1.routingTable && r1.routingTable.some(r => r.type === 'R'));
+        return !!(r1?.ripConfig?.enabled && r1.ripConfig.version === 2 && r1.ripConfig.noAutoSummary && r1.routingTable?.some(r => r.type === 'R'));
       },
       hint: 'Configure "version 2" and "no auto-summary" under router rip.'
     },
@@ -438,7 +442,7 @@ export const LABS_PART_2: AcademicExperiment[] = [
       description: 'Check that OSPF routes (type O) are installed in the routing table.',
       isPassed: (devices) => {
         const r1 = devices.find(d => d.name === 'Router1');
-        return !!(r1 && r1.routingTable && r1.routingTable.some(r => r.type === 'O'));
+        return !!(r1?.ospfConfig?.enabled && r1.ospfConfig.networks.some(network => network.area === 0) && r1.routingTable?.some(r => r.type === 'O'));
       },
       hint: 'Configure OSPF process 1 and wildcard mask network statements in area 0.'
     },
@@ -546,7 +550,8 @@ export const LABS_PART_2: AcademicExperiment[] = [
       description: 'Check that inter-area OSPF routes (O IA) are learned across the ABR.',
       isPassed: (devices) => {
         const abr = devices.find(d => d.name === 'ABR-Router');
-        return !!(abr && abr.interfaces.length >= 2);
+        const areas = new Set(abr?.ospfConfig?.networks.map(network => network.area) || []);
+        return !!(abr?.ospfConfig?.enabled && areas.size >= 2 && abr.routingTable?.some(route => route.type === 'O'));
       },
       hint: 'Configure ABR interfaces connecting Area 1 and Area 0.'
     },

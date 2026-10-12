@@ -4,7 +4,9 @@ import {
   Cpu, HardDrive, Check, Play, RefreshCw, Layers, ShieldCheck,
   Server as ServerIcon, Radio, Compass, Shuffle, ShieldAlert
 } from 'lucide-react';
-import { NetworkDevice, NetworkLink, RouteEntry, DnsRecord } from '../../types/network';
+import { AccessListRule, NetworkDevice, NetworkLink, RouteEntry, DnsRecord } from '../../types/network';
+import { CliMode, CliSession, cliPrompt, runCliScript, runRouterCommand } from '../../utils/routerCli';
+import { findDevicePath } from '../../utils/simulationEngine';
 
 interface CiscoDeviceModalProps {
   device: NetworkDevice;
@@ -47,6 +49,7 @@ export const CiscoDeviceModal: React.FC<CiscoDeviceModalProps> = ({
     'Type "help" or "ipconfig" or "ping <ip>" to begin.',
     '',
   ]);
+  const [remoteTelnet, setRemoteTelnet] = useState<{ deviceId: string; stage: 'vty-password' | 'user' | 'enable-password' | 'priv'; session: CliSession } | null>(null);
 
   // Web Browser State
   const [browserUrl, setBrowserUrl] = useState<string>('http://192.168.2.100');
@@ -54,8 +57,9 @@ export const CiscoDeviceModal: React.FC<CiscoDeviceModalProps> = ({
 
   // Cisco IOS CLI State
   const [cliInput, setCliInput] = useState<string>('');
-  const [cliMode, setCliMode] = useState<'user' | 'priv' | 'config' | 'config-if'>('user');
-  const [currentCliIface, setCurrentCliIface] = useState<string>('GigabitEthernet0/0');
+  const [cliMode, setCliMode] = useState<CliMode>('user');
+  const [currentCliIface, setCurrentCliIface] = useState<string>('');
+  const [cliProtocol, setCliProtocol] = useState<'rip' | 'ripng' | 'ospf' | 'eigrp' | 'bgp' | undefined>();
   const [powerAlertMessage, setPowerAlertMessage] = useState<string | null>(null);
   const [selectedModuleType, setSelectedModuleType] = useState<'HWIC-2T' | 'WIC-1T' | 'COVER'>('HWIC-2T');
   const [cliLog, setCliLog] = useState<string[]>([
@@ -69,12 +73,40 @@ export const CiscoDeviceModal: React.FC<CiscoDeviceModalProps> = ({
 
   // Selected interface in Config Tab
   const [selectedIfaceIdx, setSelectedIfaceIdx] = useState<number>(0);
+  const [aclDraft, setAclDraft] = useState({ number: '101', action: 'deny' as 'permit' | 'deny', protocol: 'tcp' as AccessListRule['protocol'], source: 'any', destination: 'any', port: '' });
+  const [aclError, setAclError] = useState('');
 
   if (!isOpen) return null;
 
   const handleCommit = (updated: NetworkDevice) => {
     setDevData(updated);
     onSaveDevice(updated);
+  };
+
+  const addAccessRule = () => {
+    const normalize = (value: string) => {
+      const address = value.trim().replace(/^host\s+/i, '');
+      if (address.toLowerCase() === 'any') return 'any';
+      return address.includes('/') ? address : `${address}/32`;
+    };
+    const port = aclDraft.port ? Number(aclDraft.port) : undefined;
+    const validAddress = (value: string) => {
+      const address = value.trim().replace(/^host\s+/i, '');
+      if (address.toLowerCase() === 'any') return true;
+      const [ip, prefixText] = address.split('/');
+      const octets = ip.split('.');
+      const prefix = prefixText === undefined ? 32 : Number(prefixText);
+      return octets.length === 4 && octets.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255) && Number.isInteger(prefix) && prefix >= 0 && prefix <= 32;
+    };
+    if (!/^\d+$/.test(aclDraft.number) || Number(aclDraft.number) < 1 || Number(aclDraft.number) > 199 ||
+        !validAddress(aclDraft.source) || !validAddress(aclDraft.destination) ||
+        (port !== undefined && (!Number.isInteger(port) || port < 1 || port > 65535 || !['tcp', 'udp'].includes(aclDraft.protocol)))) {
+      setAclError('Enter an ACL number from 1 to 199, valid IPv4 or any addresses, and a valid TCP/UDP port if used.');
+      return;
+    }
+    setAclError('');
+    const rule: AccessListRule = { id: `acl-ui-${Date.now()}`, number: aclDraft.number, action: aclDraft.action, protocol: aclDraft.protocol, source: normalize(aclDraft.source), destination: normalize(aclDraft.destination), ...(port ? { destinationPort: port } : {}) };
+    handleCommit({ ...devData, accessLists: [...(devData.accessLists || []), rule] });
   };
 
   const togglePower = () => {
@@ -190,6 +222,29 @@ export const CiscoDeviceModal: React.FC<CiscoDeviceModalProps> = ({
 
     const newLines = [`C:\\> ${rawCmd}`];
 
+    if (remoteTelnet) {
+      const remote = allDevices.find(item => item.id === remoteTelnet.deviceId);
+      if (!remote) { setRemoteTelnet(null); newLines.push('Telnet peer is no longer in this topology.'); }
+      else if (remoteTelnet.stage === 'vty-password') {
+        if (rawCmd !== remote.lineConfig?.vty?.password) newLines.push('% Login invalid.');
+        else { setRemoteTelnet({ ...remoteTelnet, stage: 'user' }); newLines.push('User Access Verification', `${remote.name}>`); }
+      } else if (remoteTelnet.stage === 'user' && cmd === 'enable') {
+        setRemoteTelnet({ ...remoteTelnet, stage: 'enable-password' }); newLines.push('Password:');
+      } else if (remoteTelnet.stage === 'enable-password') {
+        if (rawCmd !== remote.enableSecret) newLines.push('% Access denied.');
+        else setRemoteTelnet({ ...remoteTelnet, stage: 'priv', session: { ...remoteTelnet.session, mode: 'priv' } });
+      } else {
+        const mode = remoteTelnet.stage === 'user' ? 'user' : remoteTelnet.session.mode;
+        const result = runRouterCommand(remote, { ...remoteTelnet.session, mode }, rawCmd);
+        if (result.device !== remote) onSaveDevice(result.device);
+        setRemoteTelnet({ ...remoteTelnet, stage: result.session.mode === 'priv' ? 'priv' : remoteTelnet.stage, session: result.session });
+        newLines.push(`${cliPrompt(remote, mode)} ${rawCmd}`, ...result.output);
+      }
+      setCmdOutput(prev => [...prev, ...newLines]);
+      setCmdInput('');
+      return;
+    }
+
     if (cmd === 'cls' || cmd === 'clear') {
       setCmdOutput([]);
       setCmdInput('');
@@ -257,6 +312,18 @@ export const CiscoDeviceModal: React.FC<CiscoDeviceModalProps> = ({
           `  Subnet Mask . . . . . . . . : ${iface?.subnetMask || '0.0.0.0'}`,
           `  Default Gateway . . . . . . : ${devData.defaultGateway || '0.0.0.0'}`
         );
+      }
+    } else if (cmd === 'telnet') {
+      const targetIp = args[0];
+      const target = allDevices.find(item => item.interfaces.some(iface => iface.ip === targetIp) && ['router', 'switch'].includes(item.type));
+      const vty = target?.lineConfig?.vty;
+      if (!targetIp || !target) newLines.push('Connection failed: no router or switch uses that IPv4 address.');
+      else if (!findDevicePath(allDevices, allLinks, devData.id, target.id)) newLines.push('Connection failed: no operational network path to the remote device.');
+      else if (!vty?.login || !vty.password || !['telnet', 'all'].includes(vty.transport || 'telnet')) newLines.push('Connection refused: VTY lines require login, a password, and transport input telnet.');
+      else if (!target.enableSecret) newLines.push('Connection opened, but remote privileged EXEC is unavailable until an enable secret is configured.');
+      else {
+        setRemoteTelnet({ deviceId: target.id, stage: 'vty-password', session: { mode: 'user', selectedInterface: '' } });
+        newLines.push(`Connecting to ${targetIp}...`, 'User Access Verification', 'Password:');
       }
     } else if (cmd === 'ping') {
       const targetIp = args[0];
@@ -433,17 +500,7 @@ export const CiscoDeviceModal: React.FC<CiscoDeviceModalProps> = ({
   // Cisco IOS CLI Engine (Router / Switch)
   // -------------------------------------------------------------
   const getPrompt = () => {
-    const hostname = devData.name || 'Router';
-    switch (cliMode) {
-      case 'user':
-        return `${hostname}>`;
-      case 'priv':
-        return `${hostname}#`;
-      case 'config':
-        return `${hostname}(config)#`;
-      case 'config-if':
-        return `${hostname}(config-if)#`;
-    }
+    return cliPrompt(devData, cliMode);
   };
 
   const handleCliSubmit = (e: React.FormEvent) => {
@@ -457,168 +514,26 @@ export const CiscoDeviceModal: React.FC<CiscoDeviceModalProps> = ({
       return;
     }
 
-    const tokens = rawCmd.split(/\s+/);
-    const cmd0 = tokens[0]?.toLowerCase() || '';
-    const cmd1 = tokens[1]?.toLowerCase() || '';
-    const cmd2 = tokens[2]?.toLowerCase() || '';
-
-    const newLines = [`${currentPrompt} ${rawCmd}`];
-
-    if (cmd0 === 'enable' || cmd0 === 'en') {
-      setCliMode('priv');
-    } else if (cmd0 === 'disable') {
-      setCliMode('user');
-    } else if (cmd0 === 'configure' && (cmd1 === 'terminal' || cmd1 === 't') || cmd0 === 'conf' && cmd1 === 't') {
-      if (cliMode === 'priv' || cliMode === 'config-if') {
-        setCliMode('config');
-        newLines.push('Enter configuration commands, one per line. End with CNTL/Z.');
-      } else {
-        newLines.push('% Command available in privileged mode only.');
-      }
-    } else if (cmd0 === 'hostname') {
-      if (cliMode === 'config') {
-        const newHost = tokens[1] || 'Router';
-        handleCommit({ ...devData, name: newHost });
-      } else {
-        newLines.push('% Incomplete command or incorrect mode.');
-      }
-    } else if (cmd0 === 'interface' || cmd0 === 'int') {
-      if (cliMode === 'config') {
-        const ifaceArg = tokens.slice(1).join('');
-        setCurrentCliIface(ifaceArg || 'GigabitEthernet0/0');
-        setCliMode('config-if');
-      } else {
-        newLines.push('% Command requires configuration mode.');
-      }
-    } else if (cmd0 === 'ip' && cmd1 === 'address') {
-      if (cliMode === 'config-if') {
-        const ip = tokens[2];
-        const mask = tokens[3];
-        if (ip && mask) {
-          const updatedIfaces = [...devData.interfaces];
-          const ifaceIdx = updatedIfaces.findIndex(i => 
-            i.name.toLowerCase().includes(currentCliIface.toLowerCase()) || 
-            currentCliIface.toLowerCase().includes(i.name.toLowerCase())
-          );
-          if (ifaceIdx >= 0) {
-            updatedIfaces[ifaceIdx] = {
-              ...updatedIfaces[ifaceIdx],
-              ip,
-              subnetMask: mask
-            };
-            handleCommit({ ...devData, interfaces: updatedIfaces });
-            newLines.push(`% IP address ${ip} ${mask} assigned to ${updatedIfaces[ifaceIdx].name}.`);
-          } else if (updatedIfaces.length > 0) {
-            updatedIfaces[0] = { ...updatedIfaces[0], ip, subnetMask: mask };
-            handleCommit({ ...devData, interfaces: updatedIfaces });
-            newLines.push(`% IP address ${ip} ${mask} assigned to ${updatedIfaces[0].name}.`);
-          }
-        } else {
-          newLines.push('% Incomplete command: ip address <IP> <Subnet-Mask>');
-        }
-      } else {
-        newLines.push('% Command must be run in interface configuration mode.');
-      }
-    } else if (cmd0 === 'no' && (cmd1 === 'shutdown' || cmd1 === 'shut')) {
-      if (cliMode === 'config-if') {
-        const updatedIfaces = devData.interfaces.map(i => ({ ...i, status: 'up' as const }));
-        handleCommit({ ...devData, interfaces: updatedIfaces });
-        newLines.push(`%LINK-5-CHANGED: Interface ${currentCliIface}, changed state to up`);
-        newLines.push(`%LINEPROTO-5-UPDOWN: Line protocol on Interface ${currentCliIface}, changed state to up`);
-      }
-    } else if (cmd0 === 'shutdown' || cmd0 === 'shut') {
-      if (cliMode === 'config-if') {
-        const updatedIfaces = devData.interfaces.map(i => ({ ...i, status: 'down' as const }));
-        handleCommit({ ...devData, interfaces: updatedIfaces });
-        newLines.push(`%LINK-5-CHANGED: Interface ${currentCliIface}, changed state to administratively down`);
-      }
-    } else if (cmd0 === 'clock' && cmd1 === 'rate') {
-      if (cliMode === 'config-if') {
-        const rate = parseInt(tokens[2]) || 64000;
-        const updatedIfaces = devData.interfaces.map(i => 
-          i.name.toLowerCase().includes(currentCliIface.toLowerCase()) || currentCliIface.toLowerCase().includes(i.name.toLowerCase())
-            ? { ...i, clockRate: rate }
-            : i
-        );
-        handleCommit({ ...devData, interfaces: updatedIfaces });
-        newLines.push(`% Clock rate set to ${rate} bps on DCE interface ${currentCliIface}`);
-      } else {
-        newLines.push('% Command must be run in interface configuration mode.');
-      }
-    } else if (cmd0 === 'bandwidth') {
-      if (cliMode === 'config-if') {
-        newLines.push(`% Bandwidth set to ${tokens[1] || '64'} Kbit`);
-      }
-    } else if (cmd0 === 'encapsulation' || cmd0 === 'encap') {
-      if (cliMode === 'config-if') {
-        newLines.push(`% Encapsulation set to ${tokens[1]?.toUpperCase() || 'HDLC'}`);
-      }
-    } else if (cmd0 === 'ip' && cmd1 === 'route') {
-      if (cliMode === 'config') {
-        const dest = tokens[2];
-        const mask = tokens[3];
-        const nextHop = tokens[4];
-        if (dest && mask && nextHop) {
-          const newRoute: RouteEntry = {
-            id: `rt-${Date.now()}`,
-            destinationNetwork: dest,
-            subnetMask: mask,
-            nextHop,
-            interfaceName: devData.interfaces[0]?.name || 'Gi0/0'
-          };
-          handleCommit({
-            ...devData,
-            routingTable: [...(devData.routingTable || []), newRoute]
-          });
-          newLines.push(`% Static route added for ${dest}/${mask} via ${nextHop}.`);
-        } else {
-          newLines.push('% Incomplete command: ip route <network> <mask> <next-hop>');
-        }
-      }
-    } else if ((cmd0 === 'show' || cmd0 === 'sh') && cmd1 === 'ip' && cmd2 === 'interface' || rawCmd.toLowerCase().startsWith('sh ip int br')) {
-      newLines.push(
-        'Interface                  IP-Address      OK? Method Status                Protocol',
-        '--------------------------------------------------------------------------------------'
-      );
-      devData.interfaces.forEach(i => {
-        const namePad = i.name.padEnd(26, ' ');
-        const ipPad = (i.ip || 'unassigned').padEnd(16, ' ');
-        const stat = (i.status === 'up' ? 'up' : 'administratively down').padEnd(22, ' ');
-        newLines.push(`${namePad}${ipPad}YES manual ${stat}${i.status === 'up' ? 'up' : 'down'}`);
-      });
-    } else if ((cmd0 === 'show' || cmd0 === 'sh') && cmd1 === 'ip' && (cmd2 === 'route' || cmd2 === 'ro')) {
-      newLines.push(
-        'Codes: C - connected, S - static, R - RIP, O - OSPF',
-        'Gateway of last resort is not set',
-        ''
-      );
-      devData.interfaces.forEach(i => {
-        if (i.ip && i.status === 'up') {
-          newLines.push(`C    ${i.ip.split('.').slice(0, 3).join('.')}.0/24 is directly connected, ${i.name}`);
-        }
-      });
-      (devData.routingTable || []).forEach(r => {
-        newLines.push(`S    ${r.destinationNetwork} [1/0] via ${r.nextHop}`);
-      });
-    } else if (cmd0 === 'exit') {
-      if (cliMode === 'config-if') setCliMode('config');
-      else if (cliMode === 'config') setCliMode('priv');
-      else if (cliMode === 'priv') setCliMode('user');
-    } else if (cmd0 === 'end') {
-      setCliMode('priv');
-    } else if (cmd0 === 'ping') {
-      const target = tokens[1];
-      newLines.push(
-        `Type escape sequence to abort.`,
-        `Sending 5, 100-byte ICMP Echos to ${target}, timeout is 2 seconds:`,
-        `!!!!!`,
-        `Success rate is 100 percent (5/5), round-trip min/avg/max = 1/2/4 ms`
-      );
-    } else {
-      newLines.push(`% Invalid input detected at '^' marker.`);
-    }
-
-    setCliLog(prev => [...prev, ...newLines]);
+    const cdpNeighbors = devData.cdpEnabled === false ? [] : allLinks.flatMap(link => {
+      if (link.status !== 'up' || link.cableType === 'console') return [];
+      const localIsSource = link.sourceDeviceId === devData.id;
+      const localIsTarget = link.targetDeviceId === devData.id;
+      if (!localIsSource && !localIsTarget) return [];
+      const localPortId = localIsSource ? link.sourcePortId : link.targetPortId;
+      const remoteDeviceId = localIsSource ? link.targetDeviceId : link.sourceDeviceId;
+      const remotePortId = localIsSource ? link.targetPortId : link.sourcePortId;
+      const localPort = devData.interfaces.find(iface => iface.id === localPortId);
+      const remoteDevice = allDevices.find(item => item.id === remoteDeviceId);
+      const remotePort = remoteDevice?.interfaces.find(iface => iface.id === remotePortId);
+      if (devData.powerState !== 'on' || localPort?.status !== 'up' || remoteDevice?.powerState !== 'on' || remoteDevice.cdpEnabled === false || remotePort?.status !== 'up') return [];
+      return [{ deviceName: remoteDevice.name, localInterface: localPort.name, remoteInterface: remotePort.name, capability: remoteDevice.type === 'router' ? 'R' : remoteDevice.type === 'switch' ? 'S' : 'H' }];
+    });
+    const result = runCliScript(devData, { mode: cliMode, selectedInterface: currentCliIface, protocol: cliProtocol, cdpNeighbors }, rawCmd);
+    setCliMode(result.session.mode);
+    setCurrentCliIface(result.session.selectedInterface);
+    setCliProtocol(result.session.protocol);
+    if (result.device !== devData) handleCommit(result.device);
+    setCliLog(prev => [...prev, `${currentPrompt} ${rawCmd}`, ...result.output]);
     setCliInput('');
   };
 
@@ -957,6 +872,103 @@ export const CiscoDeviceModal: React.FC<CiscoDeviceModalProps> = ({
                         className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-white font-mono"
                       />
                     </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Default Gateway (IPv6)</label>
+                      <input
+                        type="text"
+                        placeholder="2001:db8:1::1"
+                        value={devData.defaultGatewayV6 || ''}
+                        onChange={(e) => handleCommit({ ...devData, defaultGatewayV6: e.target.value })}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-white font-mono"
+                      />
+                    </div>
+                    {isRouter && (
+                      <label className="flex items-center gap-2 rounded border border-slate-800 bg-slate-900 p-3 text-slate-200">
+                        <input type="checkbox" checked={Boolean(devData.ipv6RoutingEnabled)} onChange={(event) => handleCommit({ ...devData, ipv6RoutingEnabled: event.target.checked })} />
+                        Enable IPv6 unicast routing
+                      </label>
+                    )}
+                    {isSwitch && (
+                      <div>
+                        <label className="block text-slate-400 mb-1">Spanning Tree Mode</label>
+                        <select value={devData.spanningTreeMode || 'rapid-pvst'} onChange={(event) => handleCommit({ ...devData, spanningTreeMode: event.target.value as 'pvst' | 'rapid-pvst' | 'off' })} className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-white">
+                          <option value="pvst">PVST</option><option value="rapid-pvst">Rapid-PVST (educational)</option><option value="off">Off</option>
+                        </select>
+                      </div>
+                    )}
+                    {isSwitch && (
+                      <section className="space-y-2 rounded-lg border border-slate-800 bg-slate-900 p-3">
+                        <div className="font-bold text-white">VTP VLAN Distribution</div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="text-slate-400">Domain
+                            <input aria-label="VTP domain" maxLength={32} value={devData.vtpConfig?.domain || ''} onChange={event => handleCommit({ ...devData, vtpConfig: { mode: devData.vtpConfig?.mode || 'server', domain: event.target.value, version: devData.vtpConfig?.version || 1 } })} className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-white" placeholder="NETLEARN" />
+                          </label>
+                          <label className="text-slate-400">Mode
+                            <select aria-label="VTP mode" value={devData.vtpConfig?.mode || 'server'} onChange={event => handleCommit({ ...devData, vtpConfig: { mode: event.target.value as 'server' | 'client' | 'transparent', domain: devData.vtpConfig?.domain || 'NETLEARN', version: devData.vtpConfig?.version || 1 } })} className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-white"><option value="server">Server</option><option value="client">Client</option><option value="transparent">Transparent</option></select>
+                          </label>
+                          <label className="text-slate-400">Version
+                            <select aria-label="VTP version" value={devData.vtpConfig?.version || 1} onChange={event => handleCommit({ ...devData, vtpConfig: { mode: devData.vtpConfig?.mode || 'server', domain: devData.vtpConfig?.domain || 'NETLEARN', version: Number(event.target.value) as 1 | 2 | 3 } })} className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-white"><option value="1">Version 1</option><option value="2">Version 2</option><option value="3">Version 3 (modeled)</option></select>
+                          </label>
+                        </div>
+                        <p className="text-[10px] text-slate-500">Matching domains share the server VLAN database across connected switches.</p>
+                      </section>
+                    )}
+                    {isRouter && (
+                      <section className="space-y-3 rounded-lg border border-slate-800 bg-slate-900 p-3">
+                        <div>
+                          <h5 className="font-bold text-white">IPv4 Access Control Lists</h5>
+                          <p className="mt-1 text-[10px] text-slate-400">Ordered first-match rules. Bind a list to an interface below; unmatched traffic is denied.</p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <input aria-label="ACL number" value={aclDraft.number} onChange={event => setAclDraft({ ...aclDraft, number: event.target.value })} placeholder="101" className="rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-white font-mono" />
+                          <select aria-label="ACL action" value={aclDraft.action} onChange={event => setAclDraft({ ...aclDraft, action: event.target.value as 'permit' | 'deny' })} className="rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-white"><option value="deny">Deny</option><option value="permit">Permit</option></select>
+                          <select aria-label="ACL protocol" value={aclDraft.protocol} onChange={event => setAclDraft({ ...aclDraft, protocol: event.target.value as AccessListRule['protocol'] })} className="rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-white"><option value="ip">IP</option><option value="tcp">TCP</option><option value="udp">UDP</option><option value="icmp">ICMP</option></select>
+                          <input aria-label="ACL destination port" inputMode="numeric" value={aclDraft.port} onChange={event => setAclDraft({ ...aclDraft, port: event.target.value })} placeholder="Destination port (optional)" className="rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-white font-mono" />
+                          <input aria-label="ACL source address" value={aclDraft.source} onChange={event => setAclDraft({ ...aclDraft, source: event.target.value })} placeholder="Source: any or IPv4/prefix" className="rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-white font-mono" />
+                          <input aria-label="ACL destination address" value={aclDraft.destination} onChange={event => setAclDraft({ ...aclDraft, destination: event.target.value })} placeholder="Destination: any or IPv4/prefix" className="rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-white font-mono" />
+                        </div>
+                        {aclError && <p role="alert" className="text-[10px] text-rose-300">{aclError}</p>}
+                        <button onClick={addAccessRule} className="rounded bg-sky-600 px-3 py-1.5 font-bold text-white hover:bg-sky-500">Add ACL rule</button>
+                        <div className="space-y-1">
+                          {(devData.accessLists || []).map(rule => (
+                            <div key={rule.id} className="flex items-center justify-between gap-2 rounded bg-slate-950 px-2 py-1.5 font-mono text-[10px] text-slate-300">
+                              <span>{rule.number} {rule.action} {rule.protocol} {rule.source} → {rule.destination}{rule.destinationPort ? ` port ${rule.destinationPort}` : ''}</span>
+                              <button aria-label={`Remove ACL rule ${rule.id}`} onClick={() => handleCommit({ ...devData, accessLists: (devData.accessLists || []).filter(item => item.id !== rule.id) })} className="text-rose-400 hover:text-rose-300">Remove</button>
+                            </div>
+                          ))}
+                          {!devData.accessLists?.length && <p className="text-[10px] text-slate-500">No ACL rules configured.</p>}
+                        </div>
+                      </section>
+                    )}
+                    {isRouter && (
+                      <section className="space-y-3 rounded-lg border border-slate-800 bg-slate-900 p-3">
+                        <div>
+                          <h5 className="font-bold text-white">NAT Overload (PAT)</h5>
+                          <p className="mt-1 text-[10px] text-slate-400">Uses a permitted IPv4 ACL to translate inside host addresses to the selected outside interface address.</p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="text-xs text-slate-400">Source ACL
+                            <select aria-label="NAT source ACL" value={devData.natOverload?.aclNumber || ''} onChange={event => {
+                              const aclNumber = event.target.value;
+                              handleCommit({ ...devData, natOverload: aclNumber && devData.natOverload?.outsideInterface ? { ...devData.natOverload, aclNumber } : undefined });
+                            }} className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-white">
+                              <option value="">Disabled</option>
+                              {[...new Set((devData.accessLists || []).map(rule => rule.number))].map(number => <option key={number} value={number}>ACL {number}</option>)}
+                            </select>
+                          </label>
+                          <label className="text-xs text-slate-400">Outside interface
+                            <select aria-label="NAT outside interface" value={devData.natOverload?.outsideInterface || ''} onChange={event => {
+                              const outsideInterface = event.target.value;
+                              handleCommit({ ...devData, natOverload: outsideInterface && devData.natOverload?.aclNumber ? { ...devData.natOverload, outsideInterface } : undefined });
+                            }} className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-white">
+                              <option value="">Select interface</option>
+                              {devData.interfaces.filter(iface => !iface.isConsole).map(iface => <option key={iface.id} value={iface.name}>{iface.name}</option>)}
+                            </select>
+                          </label>
+                        </div>
+                        {devData.natOverload && <p className="text-[10px] text-emerald-300">PAT configured: ACL {devData.natOverload.aclNumber} → {devData.natOverload.outsideInterface}. Mark ingress and egress interfaces below.</p>}
+                      </section>
+                    )}
                   </div>
                 ) : (
                   /* Interface Settings */
@@ -994,6 +1006,16 @@ export const CiscoDeviceModal: React.FC<CiscoDeviceModalProps> = ({
                     </div>
 
                     <div className="p-3 bg-slate-900 border border-slate-800 rounded space-y-3">
+                      {isSwitch && (
+                        <label className="block text-slate-400">Switchport mode
+                          <select aria-label="Switchport mode" value={selectedIface?.mode || 'access'} onChange={event => {
+                            const mode = event.target.value as NonNullable<NetworkDevice['interfaces'][number]['mode']>;
+                            const updatedIfaces = [...devData.interfaces];
+                            updatedIfaces[selectedIfaceIdx] = { ...updatedIfaces[selectedIfaceIdx], mode, ...(mode === 'access' ? { allowedVlans: undefined } : {}) };
+                            handleCommit({ ...devData, interfaces: updatedIfaces });
+                          }} className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-white"><option value="access">Access</option><option value="trunk">Trunk</option><option value="dynamic-auto">DTP Dynamic Auto</option><option value="dynamic-desirable">DTP Dynamic Desirable</option></select>
+                        </label>
+                      )}
                       <div className="flex items-center gap-4 text-xs font-semibold">
                         <span>IP Configuration:</span>
                         <label className="flex items-center gap-1.5 cursor-pointer">
@@ -1051,6 +1073,60 @@ export const CiscoDeviceModal: React.FC<CiscoDeviceModalProps> = ({
                           className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded text-white font-mono"
                         />
                       </div>
+                      <div>
+                        <label className="block text-slate-400 mb-1">IPv6 Address / Prefix</label>
+                        <input
+                          type="text"
+                          placeholder="2001:db8:1::10/64"
+                          value={selectedIface?.ipv6 ? (selectedIface.ipv6.includes('/') ? selectedIface.ipv6 : `${selectedIface.ipv6}/${selectedIface.ipv6Prefix ?? 64}`) : ''}
+                          onChange={(event) => {
+                            const [ipv6, prefixText] = event.target.value.split('/');
+                            const updatedIfaces = [...devData.interfaces];
+                            updatedIfaces[selectedIfaceIdx] = { ...updatedIfaces[selectedIfaceIdx], ipv6, ipv6Prefix: prefixText ? Number(prefixText) : undefined };
+                            handleCommit({ ...devData, interfaces: updatedIfaces });
+                          }}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded text-white font-mono"
+                        />
+                      </div>
+                      {isRouter && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <label className="block text-slate-400">RIPng on this interface
+                            <select aria-label="RIPng interface" value={devData.ripngConfig?.enabled && devData.ripngConfig.interfaces.includes(selectedIface?.id || '') ? 'enabled' : 'disabled'} onChange={event => {
+                              const interfaceId = selectedIface?.id;
+                              if (!interfaceId) return;
+                              const enabled = event.target.value === 'enabled';
+                              const current = devData.ripngConfig;
+                              const processName = current?.processName || 'NETLEARN';
+                              const interfaces = enabled ? [...new Set([...(current?.interfaces || []), interfaceId])] : (current?.interfaces || []).filter(id => id !== interfaceId);
+                              handleCommit({ ...devData, ipv6RoutingEnabled: enabled ? true : devData.ipv6RoutingEnabled, ripngConfig: { enabled: true, processName, interfaces } });
+                            }} className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-white">
+                              <option value="disabled">Disabled</option><option value="enabled">Enabled (process NETLEARN)</option>
+                            </select>
+                          </label>
+                          <label className="block text-slate-400">NAT interface role
+                            <select aria-label="NAT interface role" value={selectedIface?.natRole || ''} onChange={(event) => {
+                              const updatedIfaces = [...devData.interfaces];
+                              updatedIfaces[selectedIfaceIdx] = { ...updatedIfaces[selectedIfaceIdx], natRole: (event.target.value || undefined) as 'inside' | 'outside' | undefined };
+                              handleCommit({ ...devData, interfaces: updatedIfaces });
+                            }} className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-white">
+                              <option value="">Not configured</option><option value="inside">NAT inside</option><option value="outside">NAT outside</option>
+                            </select>
+                          </label>
+                          {(['aclInbound', 'aclOutbound'] as const).map((direction) => (
+                            <label key={direction} className="block text-slate-400">
+                              {direction === 'aclInbound' ? 'Inbound IPv4 ACL' : 'Outbound IPv4 ACL'}
+                              <select value={selectedIface?.[direction] || ''} onChange={(event) => {
+                                const updatedIfaces = [...devData.interfaces];
+                                updatedIfaces[selectedIfaceIdx] = { ...updatedIfaces[selectedIfaceIdx], [direction]: event.target.value || undefined };
+                                handleCommit({ ...devData, interfaces: updatedIfaces });
+                              }} className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-white">
+                                <option value="">No ACL</option>
+                                {[...new Set((devData.accessLists || []).map(rule => rule.number))].map(number => <option key={number} value={number}>ACL {number}</option>)}
+                              </select>
+                            </label>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

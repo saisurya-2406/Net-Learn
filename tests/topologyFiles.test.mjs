@@ -109,6 +109,32 @@ test('rejects malformed addresses, IDs, and duplicate device identifiers', () =>
   );
 });
 
+test('validates VLAN and switchport fields when importing topologies', () => {
+  assert.throws(() => createTopologyFile('Bad VLAN', [
+    devices[0], { ...devices[1], interfaces: [{ ...devices[1].interfaces[0], vlan: 4095 }] },
+  ], links), /Switchport settings/);
+  assert.throws(() => createTopologyFile('Bad VLAN table', [
+    devices[0], { ...devices[1], vlans: [{ id: 10, name: 'Students', status: 'active' }, { id: 10, name: 'Duplicate', status: 'active' }] },
+  ], links), /VLAN configuration/);
+});
+
+test('validates IPv6 interface fields and ACL rules when importing topologies', () => {
+  const router = { ...devices[0], type: 'router', interfaces: [{ ...devices[0].interfaces[0], ipv6: '2001:db8::1', ipv6Prefix: 64, aclInbound: '101' }], accessLists: [{ id: 'acl-1', number: '101', action: 'permit', protocol: 'tcp', source: 'any', destination: '192.0.2.1/32', destinationPort: 443 }] };
+  assert.doesNotThrow(() => createTopologyFile('IPv6 and ACL', [router, devices[1]], links));
+  assert.throws(() => createTopologyFile('Bad IPv6', [{ ...router, interfaces: [{ ...router.interfaces[0], ipv6: 'not:ipv6' }] }, devices[1]], links), /IPv6 or ACL settings/);
+  assert.throws(() => createTopologyFile('Bad ACL', [{ ...router, accessLists: [{ ...router.accessLists[0], destination: '999.999.999.999/32' }] }, devices[1]], links), /Access-list rule/);
+  assert.throws(() => createTopologyFile('Missing ACL', [{ ...router, accessLists: [] }, devices[1]], links), /refers to an access list/);
+});
+
+test('validates NAT overload references and round-trips its interface roles', () => {
+  const router = { ...devices[0], type: 'router', interfaces: [
+    { ...devices[0].interfaces[0], natRole: 'inside' },
+    { ...devices[0].interfaces[0], id: 'router-outside', name: 'GigabitEthernet0/1', natRole: 'outside' },
+  ], accessLists: [{ id: 'pat-acl', number: '10', action: 'permit', protocol: 'ip', source: '10.0.0.0/24', destination: 'any' }], natOverload: { aclNumber: '10', outsideInterface: 'GigabitEthernet0/1' } };
+  assert.doesNotThrow(() => createTopologyFile('NAT config', [router, devices[1]], links));
+  assert.throws(() => createTopologyFile('Bad NAT', [{ ...router, natOverload: { ...router.natOverload, outsideInterface: 'missing' } }, devices[1]], links), /NAT overload configuration/);
+});
+
 test('rejects oversized topology files before parsing their contents', () => {
   const oversized = ' '.repeat(MAX_TOPOLOGY_FILE_BYTES + 1);
 

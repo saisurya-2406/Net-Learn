@@ -64,7 +64,8 @@ export const LABS_PART_3: AcademicExperiment[] = [
       description: 'Check that Serial0/0/0 has PPP encapsulation and line protocol is up.',
       isPassed: (devices) => {
         const r1 = devices.find(d => d.name === 'HQ-Router');
-        return !!(r1 && r1.interfaces.some(i => i.status === 'up'));
+        const serial = r1?.interfaces.find(i => /serial0\/0\/0/i.test(i.name));
+        return !!(serial && serial.status === 'up' && serial.encapsulation === 'ppp' && serial.pppAuthentication === 'chap');
       },
       hint: 'Configure "encapsulation ppp" on Serial0/0/0 and configure CHAP credentials.'
     },
@@ -156,7 +157,8 @@ export const LABS_PART_3: AcademicExperiment[] = [
       description: 'Check that Serial0/0/0 has HDLC encapsulation and line protocol is up.',
       isPassed: (devices) => {
         const r0 = devices.find(d => d.name === 'Router0');
-        return !!(r0 && r0.interfaces.some(i => i.status === 'up'));
+        const serial = r0?.interfaces.find(i => /serial0\/0\/0/i.test(i.name));
+        return !!(serial && serial.status === 'up' && (serial.encapsulation === 'hdlc' || !serial.encapsulation));
       },
       hint: 'Configure "encapsulation hdlc" on Serial0/0/0.'
     },
@@ -253,7 +255,7 @@ export const LABS_PART_3: AcademicExperiment[] = [
       description: 'Check that BGP routes (type B) are learned between AS 100 and AS 200.',
       isPassed: (devices) => {
         const r1 = devices.find(d => d.name === 'AS100-ISP');
-        return !!(r1 && r1.routingTable && r1.routingTable.some(r => r.type === 'B'));
+        return !!(r1?.bgpConfig?.enabled && r1.bgpConfig.neighbors.length > 0 && r1.bgpConfig.networks.length > 0 && r1.routingTable?.some(r => r.type === 'B'));
       },
       hint: 'Configure BGP neighbor and network statements with correct remote-as.'
     },
@@ -352,7 +354,7 @@ export const LABS_PART_3: AcademicExperiment[] = [
       description: 'Check that EIGRP routes (type D) are installed in the routing table.',
       isPassed: (devices) => {
         const r1 = devices.find(d => d.name === 'Router1');
-        return !!(r1 && r1.routingTable && r1.routingTable.some(r => r.type === 'D'));
+        return !!(r1?.eigrpConfig?.enabled && r1.routingTable?.some(r => r.type === 'D'));
       },
       hint: 'Configure "router eigrp 100" and matching autonomous system number on both routers.'
     },
@@ -445,7 +447,7 @@ export const LABS_PART_3: AcademicExperiment[] = [
       description: 'Check that VTY lines are configured and Telnet connectivity can be established.',
       isPassed: (devices) => {
         const r0 = devices.find(d => d.name === 'Core-Router');
-        return !!(r0 && r0.interfaces.some(i => i.ip === '192.168.1.1'));
+        return !!(r0?.enableSecret && r0.lineConfig?.vty?.password && r0.lineConfig.vty.login && ['telnet', 'all'].includes(r0.lineConfig.vty.transport || '') && r0.interfaces.some(i => i.ip === '192.168.1.1' && i.status === 'up'));
       },
       hint: 'Configure "enable secret" and "line vty 0 4" with password and login.'
     },

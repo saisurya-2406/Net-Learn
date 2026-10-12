@@ -15,7 +15,7 @@ export const DeviceConfigModal: React.FC<DeviceConfigModalProps> = ({
   onClose,
   onSave,
 }) => {
-  const [activeTab, setActiveTab] = useState<'ip' | 'interfaces' | 'routing' | 'switch-vlans' | 'services'>('ip');
+  const [activeTab, setActiveTab] = useState<'ip' | 'interfaces' | 'routing' | 'switch-vlans' | 'services' | 'network-services'>('ip');
   const [devData, setDevData] = useState<NetworkDevice>({ ...device });
 
   if (!isOpen) return null;
@@ -152,10 +152,29 @@ export const DeviceConfigModal: React.FC<DeviceConfigModalProps> = ({
               Services (HTTP / DNS / DHCP)
             </button>
           )}
+          <button onClick={() => setActiveTab('network-services')} className={`px-3 py-1.5 rounded-md transition-colors ${activeTab === 'network-services' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'}`}>Wireless & Firewall</button>
         </div>
 
         {/* Tab Contents */}
         <div className="flex-1 p-6 overflow-y-auto space-y-4 text-xs">
+          {activeTab === 'network-services' && <div className="space-y-5">
+            <section className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-3">
+              <h3 className="text-white font-bold">802.11 association profile</h3>
+              <p className="text-slate-500">Set matching SSID and security on an access point and client, then connect them with a Wireless link.</p>
+              <label className="block text-slate-400">SSID<input value={devData.wirelessConfig?.ssid || ''} onChange={e => setDevData({ ...devData, wirelessConfig: { ssid: e.target.value, security: devData.wirelessConfig?.security || 'wpa2-psk', passphrase: devData.wirelessConfig?.passphrase } })} className="mt-1 w-full p-2 bg-slate-900 border border-slate-700 rounded text-white" /></label>
+              <label className="block text-slate-400">Security<select value={devData.wirelessConfig?.security || 'wpa2-psk'} onChange={e => setDevData({ ...devData, wirelessConfig: { ssid: devData.wirelessConfig?.ssid || '', security: e.target.value as 'open' | 'wpa2-psk' | 'wpa3-sae', passphrase: devData.wirelessConfig?.passphrase } })} className="mt-1 w-full p-2 bg-slate-900 border border-slate-700 rounded text-white"><option value="open">Open</option><option value="wpa2-psk">WPA2 Personal</option><option value="wpa3-sae">WPA3 SAE</option></select></label>
+              {devData.wirelessConfig?.security !== 'open' && <label className="block text-slate-400">Shared passphrase<input type="password" value={devData.wirelessConfig?.passphrase || ''} onChange={e => setDevData({ ...devData, wirelessConfig: { ...(devData.wirelessConfig || { ssid: '', security: 'wpa2-psk' as const }), passphrase: e.target.value } })} className="mt-1 w-full p-2 bg-slate-900 border border-slate-700 rounded text-white" /></label>}
+              <button onClick={() => setDevData({ ...devData, wirelessConfig: undefined })} className="text-rose-400">Clear wireless profile</button>
+            </section>
+            {devData.type === 'firewall' && <section className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-3">
+              <h3 className="text-white font-bold">Stateful firewall policy</h3>
+              <label className="flex items-center gap-2 text-slate-300"><input type="checkbox" checked={devData.firewallConfig?.enabled ?? false} onChange={e => setDevData({ ...devData, firewallConfig: { enabled: e.target.checked, defaultAction: devData.firewallConfig?.defaultAction || 'deny', rules: devData.firewallConfig?.rules || [] } })} /> Enable inspection</label>
+              <label className="block text-slate-400">Default action<select value={devData.firewallConfig?.defaultAction || 'deny'} onChange={e => setDevData({ ...devData, firewallConfig: { enabled: devData.firewallConfig?.enabled ?? true, defaultAction: e.target.value as 'allow' | 'deny', rules: devData.firewallConfig?.rules || [] } })} className="mt-1 w-full p-2 bg-slate-900 border border-slate-700 rounded text-white"><option value="deny">Deny new flows</option><option value="allow">Allow new flows</option></select></label>
+              <label className="block text-slate-400">Allow new protocol<select onChange={e => { if (e.target.value) setDevData({ ...devData, firewallConfig: { enabled: true, defaultAction: devData.firewallConfig?.defaultAction || 'deny', rules: [...(devData.firewallConfig?.rules || []), { action: 'allow', protocol: e.target.value as 'any' | 'tcp' | 'udp' | 'icmp' }] } }); }} value="" className="mt-1 w-full p-2 bg-slate-900 border border-slate-700 rounded text-white"><option value="">Add allow rule…</option><option value="any">Any</option><option value="tcp">TCP</option><option value="udp">UDP</option><option value="icmp">ICMP</option></select></label>
+              {(devData.firewallConfig?.rules || []).map((rule, index) => <div key={`${rule.protocol}-${index}`} className="flex justify-between text-slate-300"><span>{index + 1}. {rule.action.toUpperCase()} {rule.protocol.toUpperCase()}</span><button onClick={() => setDevData({ ...devData, firewallConfig: { ...(devData.firewallConfig || { enabled: true, defaultAction: 'deny' as const, rules: [] }), rules: devData.firewallConfig!.rules.filter((_, ruleIndex) => ruleIndex !== index) } })} className="text-rose-400">Remove</button></div>)}
+              <p className="text-slate-500">Replies to an allowed flow are treated as established for that simulation run. This is a simplified flow model, not a persistent connection table.</p>
+            </section>}
+          </div>}
           {/* TAB 1: Host IP or Router Interface Addressing */}
           {activeTab === 'ip' && (
             <>
@@ -308,6 +327,29 @@ export const DeviceConfigModal: React.FC<DeviceConfigModalProps> = ({
                             </div>
                           </div>
                         )}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-slate-800 pt-3">
+                          <label className="text-slate-400">WAN encapsulation
+                            <select value={iface.encapsulation || ''} onChange={e => updateIfaceField(idx, 'encapsulation', e.target.value)} className="mt-1 w-full px-2 py-1.5 bg-slate-900 border border-slate-700 rounded text-white">
+                              <option value="">Default (HDLC on serial)</option><option value="hdlc">HDLC</option><option value="ppp">PPP</option><option value="pppoe">PPPoE (Ethernet)</option><option value="frame-relay">Frame Relay</option>
+                            </select>
+                          </label>
+                          {iface.encapsulation === 'frame-relay' && <label className="text-slate-400">Local DLCI
+                            <input type="number" min={16} max={1007} value={iface.frameRelayDlci ?? ''} onChange={e => { const updated = [...devData.interfaces]; updated[idx] = { ...iface, frameRelayDlci: e.target.value ? Number(e.target.value) : undefined }; setDevData({ ...devData, interfaces: updated }); }} className="mt-1 w-full px-2 py-1.5 bg-slate-900 border border-slate-700 rounded text-white" />
+                          </label>}
+                          <label className="text-slate-400">QoS priority
+                            <select value={iface.qos?.priority || 'normal'} onChange={e => { const updated = [...devData.interfaces]; updated[idx] = { ...iface, qos: { ...iface.qos, priority: e.target.value as 'low' | 'normal' | 'high' | 'voice' } }; setDevData({ ...devData, interfaces: updated }); }} className="mt-1 w-full px-2 py-1.5 bg-slate-900 border border-slate-700 rounded text-white">
+                              <option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="voice">Voice</option>
+                            </select>
+                          </label>
+                        </div>
+                        {isSwitch && <div className="grid grid-cols-2 gap-3">
+                          <label className="text-slate-400">EtherChannel group
+                            <input type="number" min={1} max={64} value={iface.channelGroup ?? ''} onChange={e => { const updated = [...devData.interfaces]; updated[idx] = { ...iface, channelGroup: e.target.value ? Number(e.target.value) : undefined }; setDevData({ ...devData, interfaces: updated }); }} className="mt-1 w-full px-2 py-1.5 bg-slate-900 border border-slate-700 rounded text-white" />
+                          </label>
+                          <label className="text-slate-400">Negotiation protocol
+                            <select value={iface.channelProtocol || 'lacp'} onChange={e => { const updated = [...devData.interfaces]; updated[idx] = { ...iface, channelProtocol: e.target.value as 'lacp' | 'pagp' }; setDevData({ ...devData, interfaces: updated }); }} className="mt-1 w-full px-2 py-1.5 bg-slate-900 border border-slate-700 rounded text-white"><option value="lacp">LACP</option><option value="pagp">PAgP</option></select>
+                          </label>
+                        </div>}
                       </div>
                     ))}
                   </div>
@@ -426,6 +468,18 @@ export const DeviceConfigModal: React.FC<DeviceConfigModalProps> = ({
           {/* TAB 4: Server Services */}
           {activeTab === 'services' && isServer && (
             <div className="space-y-5">
+              <section className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-3">
+                <h3 className="font-bold text-white">SNMP management agent</h3>
+                <label className="flex gap-2 items-center text-slate-300"><input type="checkbox" checked={devData.serverServices?.snmp?.enabled ?? false} onChange={e => setDevData({ ...devData, serverServices: { ...(devData.serverServices || { httpEnabled: true, httpContent: '', dnsEnabled: false, dnsRecords: [], dhcpEnabled: false, dhcpPool: { startIp: '', endIp: '', subnetMask: '', gateway: '', dnsServer: '' } }), snmp: { enabled: e.target.checked, version: devData.serverServices?.snmp?.version || 'v2c', community: devData.serverServices?.snmp?.community || 'public' } } })} /> Enable SNMP request/response model</label>
+                <div className="grid grid-cols-2 gap-3"><label className="text-slate-400">Version<select value={devData.serverServices?.snmp?.version || 'v2c'} onChange={e => setDevData({ ...devData, serverServices: { ...(devData.serverServices || { httpEnabled: true, httpContent: '', dnsEnabled: false, dnsRecords: [], dhcpEnabled: false, dhcpPool: { startIp: '', endIp: '', subnetMask: '', gateway: '', dnsServer: '' } }), snmp: { enabled: devData.serverServices?.snmp?.enabled ?? true, version: e.target.value as 'v2c' | 'v3', community: devData.serverServices?.snmp?.community || 'public' } } })} className="mt-1 w-full p-2 bg-slate-900 border border-slate-700 rounded text-white"><option value="v2c">SNMPv2c</option><option value="v3">SNMPv3 (credential check simplified)</option></select></label>
+                <label className="text-slate-400">Read community<input value={devData.serverServices?.snmp?.community || ''} onChange={e => setDevData({ ...devData, serverServices: { ...(devData.serverServices || { httpEnabled: true, httpContent: '', dnsEnabled: false, dnsRecords: [], dhcpEnabled: false, dhcpPool: { startIp: '', endIp: '', subnetMask: '', gateway: '', dnsServer: '' } }), snmp: { enabled: devData.serverServices?.snmp?.enabled ?? true, version: devData.serverServices?.snmp?.version || 'v2c', community: e.target.value } } })} className="mt-1 w-full p-2 bg-slate-900 border border-slate-700 rounded text-white" /></label></div>
+              </section>
+              <section className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-3">
+                <h3 className="font-bold text-white">AAA authentication service</h3>
+                <label className="flex gap-2 items-center text-slate-300"><input type="checkbox" checked={devData.serverServices?.aaa?.enabled ?? false} onChange={e => setDevData({ ...devData, serverServices: { ...(devData.serverServices || { httpEnabled: true, httpContent: '', dnsEnabled: false, dnsRecords: [], dhcpEnabled: false, dhcpPool: { startIp: '', endIp: '', subnetMask: '', gateway: '', dnsServer: '' } }), aaa: { enabled: e.target.checked, protocol: devData.serverServices?.aaa?.protocol || 'radius', users: devData.serverServices?.aaa?.users || [{ username: 'admin', password: 'netlearn', privilege: 15 }] } } })} /> Enable AAA authentication model</label>
+                <label className="text-slate-400">Backend<select value={devData.serverServices?.aaa?.protocol || 'radius'} onChange={e => setDevData({ ...devData, serverServices: { ...(devData.serverServices || { httpEnabled: true, httpContent: '', dnsEnabled: false, dnsRecords: [], dhcpEnabled: false, dhcpPool: { startIp: '', endIp: '', subnetMask: '', gateway: '', dnsServer: '' } }), aaa: { enabled: devData.serverServices?.aaa?.enabled ?? true, protocol: e.target.value as 'radius' | 'tacacs+', users: devData.serverServices?.aaa?.users || [{ username: 'admin', password: 'netlearn', privilege: 15 }] } } })} className="mt-1 w-full p-2 bg-slate-900 border border-slate-700 rounded text-white"><option value="radius">RADIUS</option><option value="tacacs+">TACACS+</option></select></label>
+                <p className="text-slate-500">Default educational account: admin / netlearn (privilege 15). This does not exchange real RADIUS/TACACS+ packets.</p>
+              </section>
               {/* HTTP Web Server */}
               <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-3">
                 <div className="flex items-center justify-between">

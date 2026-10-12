@@ -6,12 +6,14 @@ import {
   Compass, Shuffle, Terminal, Info, X, Cable
 } from 'lucide-react';
 import { NetworkDevice, NetworkLink, SimulationStep, DeviceType, CableType } from '../../types/network';
+import { APPLICATION_PROTOCOLS, ApplicationProtocol } from '../../utils/protocolCatalog';
 import { ACADEMIC_EXPERIMENTS } from '../../data/labData';
 import { NetworkCanvas } from './NetworkCanvas';
 import { PacketTracerBottomBar } from './PacketTracerBottomBar';
 import { CiscoDeviceModal } from './CiscoDeviceModal';
 import { PacketInspector } from './PacketInspector';
-import { generateSimulationTrace } from '../../utils/simulationEngine';
+import { generateSimulationTrace, learnSwitchMacAddresses } from '../../utils/simulationEngine';
+import { calculateRoutingTables } from '../../utils/routingEngine';
 import {
   createTopologyFile,
   parseTopologyFile,
@@ -174,7 +176,7 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
   const [isSimulationMode, setIsSimulationMode] = useState<boolean>(startBlankTopologyOnMount);
   const [srcDeviceId, setSrcDeviceId] = useState<string>('dev-pc0');
   const [dstDeviceId, setDstDeviceId] = useState<string>('dev-srv0');
-  const [protocol, setProtocol] = useState<'ICMP' | 'HTTP' | 'DNS' | 'ARP'>('ICMP');
+  const [protocol, setProtocol] = useState<ApplicationProtocol | 'ARP'>('ICMP');
   const [messagePayload, setMessagePayload] = useState('Hello from NetLearn');
   const [simulationSteps, setSimulationSteps] = useState<SimulationStep[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(-1);
@@ -366,6 +368,8 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
       protocol,
       messagePayload.trim(),
     );
+    const packetDropped = trace.some(step => /failed|drop|no route|unreachable|invalid|duplicate|missing default/i.test(step.explanation.title));
+    if (!packetDropped) setDevices(learnSwitchMacAddresses(devices, links, srcDeviceId, dstDeviceId));
     setSimulationSteps(trace);
     setCurrentStepIndex(0);
     setIsSimulationMode(true);
@@ -811,26 +815,26 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
               <span className="text-slate-400 font-medium">Protocol:</span>
               <select
                 value={protocol}
-                onChange={(e) => setProtocol(e.target.value as any)}
+                onChange={(e) => setProtocol(e.target.value as ApplicationProtocol | 'ARP')}
                 className="px-2 py-1 bg-slate-950 border border-slate-700 rounded text-white font-bold"
               >
-                <option value="ICMP">ICMP (Ping)</option>
-                <option value="HTTP">HTTP (Web)</option>
-                <option value="DNS">DNS Query</option>
+                {Object.entries(APPLICATION_PROTOCOLS).map(([key, value]) => (
+                  <option key={key} value={key}>{value.label}</option>
+                ))}
                 <option value="ARP">ARP Broadcast</option>
               </select>
             </div>
 
             <label className="flex min-w-48 flex-1 flex-col gap-1">
               <span className="text-slate-400 font-medium">
-                {protocol === 'DNS' ? 'DNS name' : protocol === 'ARP' ? 'ARP has no application payload' : 'Message payload'}
+                {protocol === 'DNS' ? 'DNS name' : protocol === 'ARP' ? 'ARP has no application payload' : `${protocol} payload`}
               </span>
               <input
                 value={messagePayload}
                 onChange={(event) => setMessagePayload(event.target.value)}
                 maxLength={256}
                 disabled={protocol === 'ARP'}
-                placeholder={protocol === 'DNS' ? 'host.example' : 'Type a message to send'}
+                placeholder={protocol === 'DNS' ? 'host.example' : protocol === 'DHCP' ? 'DHCP Discover options' : 'Type a message to send'}
                 className="w-full px-2 py-1 bg-slate-950 border border-slate-700 rounded text-white disabled:opacity-50"
               />
             </label>
@@ -951,8 +955,10 @@ export const PacketSimulatorWorkspace: React.FC<PacketSimulatorWorkspaceProps> =
           isOpen={!!activeModalDevice}
           onClose={() => setActiveModalDevice(null)}
           onSaveDevice={(updated) => {
-            setDevices(devices.map((d) => (d.id === updated.id ? updated : d)));
-            setActiveModalDevice(updated);
+            const nextDevices = calculateRoutingTables(devices.map((d) => (d.id === updated.id ? updated : d)), links);
+            const savedDevice = nextDevices.find(item => item.id === updated.id) || updated;
+            setDevices(nextDevices);
+            setActiveModalDevice(savedDevice);
           }}
         />
       )}
