@@ -17,12 +17,14 @@ Open the local URL printed by Vite.
 
 1. Import `https://github.com/saisurya-2406/Net-Learn` into Vercel.
 2. Use the Vite framework preset, `npm run build` as the build command, and `dist` as the output directory. These values are also set in `vercel.json`.
-3. Add `GEMINI_API_KEY` in the Vercel project's Environment Variables if you want AI tutor responses from Gemini. The tutor's offline fallback works without this key.
+3. The AI tutor component is not currently connected to the active website UI, so `GEMINI_API_KEY` is not required for the user-facing app.
 4. Deploy. The Vite single-page app uses a fallback rewrite for direct page loads, and `/api/ai/ask` is handled by the Express-backed Vercel Function in `api/ai/ask.ts`.
 
 For local and traditional Node hosting, `npm run dev` and `npm run start` continue to use the Express server.
 
 ## Features
+
+See [USER-MANUAL.md](./USER-MANUAL.md) for user workflows, protocol scope, limitations, and the latest verification summary.
 
 - Five-unit networking syllabus and 15 practical lab experiments
 - Browser-based topology editor with validated NetLearn JSON import/export and browser-local topology snapshots
@@ -36,7 +38,7 @@ For local and traditional Node hosting, `npm run dev` and `npm run start` contin
 - Resource Hub with filters for provider, topic/protocol, type, difficulty, and language; resource bookmarks stay in the current browser profile
 - Directory records for official simulators, packet analysis tools, RFCs, courses, YouTube channels, and topic discovery searches
 - Practice room with 1,000 viva prompts and 198 multiple-choice questions, topic filters, model answers, explanations, and score summary
-- AI tutor support with optional local fallback logic
+- An AI tutor component exists but is not currently connected to the active website UI.
 
 Resource links are labeled as official source listings, items that need manual review, or discovery links. A catalog date is not a successful live link check. YouTube channel and search pages are not represented as individually verified videos. Course access and pricing vary by provider.
 
